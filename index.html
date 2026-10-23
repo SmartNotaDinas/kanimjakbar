@@ -1,103 +1,284 @@
+
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Smart Budget Monitoring — Kanim Jakarta Barat</title>
-<link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Smart Nota Dinas | Kanim Jakarta Barat</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
-<div id="loginScreen" class="login-screen">
-  <div class="login-bg"></div>
-  <div class="login-card">
-    <div class="brand-mark">IM</div>
-    <div class="eyebrow">PROGRAM MAGANGHUB</div>
-    <h1>SMART BUDGET<br><span>MONITORING</span></h1>
-    <p class="muted">Dashboard Monitoring & Pengendalian Anggaran<br>Kantor Imigrasi Jakarta Barat</p>
-    <form id="loginForm">
-      <label>Username</label>
-      <input id="loginUser" value="admin" autocomplete="username" required>
-      <label>Password</label>
-      <input id="loginPass" type="password" placeholder="Masukkan password" autocomplete="current-password" required>
-      <button class="btn primary full" type="submit">Masuk ke Dashboard</button>
+
+  <!-- HALAMAN LOGIN -->
+  <section id="login">
+    <form id="loginForm" class="card login">
+      <div class="mark">ND</div>
+      <h1>Smart Nota Dinas</h1>
+      <p class="sub">Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat</p>
+
+      <label>
+        Username
+        <input id="u" required autocomplete="username">
+      </label>
+
+      <label>
+        Password
+        <input id="p" type="password" required autocomplete="current-password">
+      </label>
+
+      <button class="btn">Masuk</button>
+      <p id="err" class="warn"></p>
+
+      <small>Akun awal Admin: admin / Admin#2026. Prototype lokal, bukan keamanan produksi.</small>
     </form>
-    <div class="login-hint">Akses prototype: <b>admin</b> / <b>admin123</b></div>
-  </div>
-</div>
+  </section>
 
-<div id="app" class="app hidden">
-  <aside class="sidebar">
-    <div class="sidebar-head">
-      <div class="logo-box">IM</div>
-      <div><strong>SMART BUDGET</strong><span>MONITORING</span></div>
-    </div>
-    <div class="office-chip">KANTOR IMIGRASI JAKARTA BARAT</div>
-    <nav>
-      <button class="nav-item active" data-page="dashboard"><span>▦</span> Dashboard</button>
-      <button class="nav-item" data-page="data"><span>▤</span> Data Anggaran</button>
-      <button class="nav-item" data-page="monitoring"><span>◉</span> Monitoring</button>
-      <button class="nav-item" data-page="laporan"><span>▧</span> Laporan</button>
-      <button class="nav-item" data-page="pengaturan"><span>⚙</span> Pengaturan</button>
+  <!-- APLIKASI UTAMA -->
+  <div id="app" hidden>
+
+    <!-- MENU NAVIGASI -->
+    <nav class="top">
+      <b>Smart Nota Dinas</b>
+      <div>
+        <button data-pg="mon" class="on">Monitoring</button>
+        <button data-pg="inp">Input Nota Dinas</button>
+        <button data-pg="his">Riwayat Nodin</button>
+        <button id="out">Keluar</button>
+      </div>
     </nav>
-    <div class="sidebar-foot">
-      <div class="user-mini"><div id="userAvatar">A</div><div><b id="sideUser">Administrator</b><small>Pengelola Keuangan</small></div></div>
-      <button id="logoutBtn" class="logout">↪ Keluar</button>
-    </div>
-  </aside>
 
-  <main class="main">
-    <header class="topbar">
-      <div><div class="breadcrumb">Smart Budget Monitoring / <span id="pageLabel">Dashboard</span></div><h2 id="pageTitle">Dashboard</h2></div>
-      <div class="top-actions"><span class="prototype-pill">PROTOTYPE</span><span id="todayLabel"></span></div>
-    </header>
+    <main class="wrap">
 
-    <section id="page-dashboard" class="page active">
-      <div class="hero-banner">
-        <div class="hero-copy"><span class="eyebrow">PENGENDALIAN ANGGARAN</span><h3>Monitoring anggaran yang ringkas, terstruktur, dan mudah dipantau.</h3><p>Sample data telah disesuaikan dengan kode, uraian, pagu, dan realisasi s.d. periode pada Laporan Ketersediaan Dana Detail TA 2026 — Agustus 2026.</p></div>
-        <div class="hero-building" aria-hidden="true"><div class="building-sign">KANTOR IMIGRASI<br><b>JAKARTA BARAT</b></div><div class="building"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-      </div>
-      <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-icon blue">Rp</div><div><small>Total Pagu Anggaran</small><strong id="kpiPagu">Rp0</strong><em>Seluruh bidang</em></div></div>
-        <div class="kpi"><div class="kpi-icon green">↗</div><div><small>Total Realisasi</small><strong id="kpiRealisasi">Rp0</strong><em id="kpiRealisasiMeta">0% dari pagu</em></div></div>
-        <div class="kpi"><div class="kpi-icon orange">◫</div><div><small>Sisa Anggaran</small><strong id="kpiSisa">Rp0</strong><em>Belum terealisasi</em></div></div>
-        <div class="kpi"><div class="kpi-icon purple">%</div><div><small>Realisasi</small><strong id="kpiPct">0%</strong><em>Persentase terhadap pagu</em></div></div>
-      </div>
-      <div class="grid-2">
-        <div class="panel"><div class="panel-head"><div><h3>Total Pagu per Bidang</h3><p>Ringkasan pagu dan realisasi berdasarkan unit bidang.</p></div></div><div id="bidangBars" class="bars"></div></div>
-        <div class="panel"><div class="panel-head"><div><h3>Komposisi Status</h3><p>Indikator prototype berdasarkan persentase realisasi.</p></div></div><div class="status-donut"><div class="donut" id="donut"><div><b id="normalPct">0%</b><span>Normal</span></div></div><div class="legend"><div><i class="dot normal"></i><span>Normal</span><b id="normalCount">0</b></div><div><i class="dot watch"></i><span>Terpantau</span><b id="watchCount">0</b></div><div><i class="dot alert"></i><span>Perhatian</span><b id="alertCount">0</b></div></div></div></div>
-      </div>
-      <div class="panel"><div class="panel-head"><div><h3>Monitoring Kegiatan</h3><p>Data sample dari laporan ketersediaan dana detail TA 2026.</p></div><button class="btn secondary" data-goto="monitoring">Lihat Monitoring →</button></div><div class="table-wrap"><table><thead><tr><th>Kode</th><th>Bidang</th><th>Kegiatan</th><th>Pagu</th><th>Realisasi</th><th>Sisa</th><th>%</th><th>Status</th></tr></thead><tbody id="dashboardTable"></tbody></table></div></div>
-    </section>
+      <!-- HALAMAN MONITORING -->
+      <section id="mon" class="pg">
+        <h2>Monitoring pagu</h2>
 
-    <section id="page-data" class="page">
-      <div class="section-intro"><div><span class="eyebrow">INPUT & PEMUTAKHIRAN</span><h3>Data Anggaran</h3><p>Tambahkan data secara manual. Sisa dan status dapat dihitung otomatis berdasarkan pagu dan realisasi.</p></div><button id="addBtn" class="btn primary">＋ Tambah Data</button></div>
-      <div class="toolbar"><input id="dataSearch" placeholder="Cari kode, kegiatan, atau bidang..."><select id="dataBidang"><option value="">Semua Bidang</option></select><button class="btn secondary" id="clearSearch">Reset</button></div>
-      <div class="panel"><div class="table-wrap"><table><thead><tr><th>Periode</th><th>Kode</th><th>Bidang</th><th>Kegiatan</th><th>Pagu</th><th>Realisasi</th><th>Sisa</th><th>%</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="dataTable"></tbody></table></div></div>
-    </section>
+        <p class="lead">
+          Sumber: Laporan Ketersediaan Dana Detail TA 2026,
+          periode Agustus 2026. Sisa = pagu − lock pagu − realisasi
+          − nota dinas yang diajukan di aplikasi.
+        </p>
 
-    <section id="page-monitoring" class="page">
-      <div class="section-intro"><div><span class="eyebrow">PENCARIAN & PENGENDALIAN</span><h3>Monitoring</h3><p>Gunakan periode, status, bidang, atau kegiatan untuk menemukan data dengan cepat.</p></div><button class="btn primary" id="monitorPdf">⇩ Unduh PDF</button></div>
-      <div class="filter-card"><div><label>Bulan</label><select id="mMonth"><option value="">Semua Bulan</option></select></div><div><label>Tahun</label><select id="mYear"><option value="">Semua Tahun</option></select></div><div><label>Status</label><select id="mStatus"><option value="">Semua Status</option><option>Normal</option><option>Terpantau</option><option>Perhatian</option></select></div><div><label>Bidang</label><select id="mBidang"><option value="">Semua Bidang</option></select></div><div class="search-wide"><label>Cari berdasarkan kegiatan</label><input id="mKegiatan" placeholder="Contoh: Pemeliharaan Website"></div><button id="mCariBidang" class="btn primary">Cari Bidang</button><button id="mCariKegiatan" class="btn primary">Cari Kegiatan</button><button id="mReset" class="btn secondary">Reset</button></div>
-      <div class="panel"><div class="panel-head"><div><h3>Hasil Monitoring</h3><p id="monitorSummary">0 data</p></div></div><div class="table-wrap"><table><thead><tr><th>Periode</th><th>Kode</th><th>Bidang</th><th>Kegiatan</th><th>Pagu</th><th>Realisasi</th><th>Sisa</th><th>%</th><th>Status</th></tr></thead><tbody id="monitorTable"></tbody></table></div></div>
-      <div class="info-note"><b>Catatan indikator prototype:</b> Normal &lt; 50%, Terpantau 50–79,99%, Perhatian ≥ 80%. Ambang ini adalah contoh untuk prototype dan perlu divalidasi dengan mentor/unit sebelum digunakan pada data resmi.</div>
-    </section>
+        <div id="cards" class="cards"></div>
 
-    <section id="page-laporan" class="page">
-      <div class="section-intro"><div><span class="eyebrow">RINGKASAN & DOKUMEN</span><h3>Laporan</h3><p>Pratinjau laporan dari data yang sudah diinput. Unduh melalui tombol PDF.</p></div><button id="reportPdf" class="btn primary">⇩ Unduh Laporan PDF</button></div>
-      <div class="report-head"><div><b>KANTOR IMIGRASI KELAS I KHUSUS NON TPI JAKARTA BARAT</b><span>SMART BUDGET MONITORING — Laporan Monitoring Anggaran</span><small>Periode data mengikuti input pada sistem</small></div><div class="report-code">SATKER<br><b>692807</b></div></div>
-      <div class="kpi-grid compact"><div class="kpi"><div><small>Total Pagu</small><strong id="rPagu">Rp0</strong></div></div><div class="kpi"><div><small>Total Realisasi</small><strong id="rReal">Rp0</strong></div></div><div class="kpi"><div><small>Sisa</small><strong id="rSisa">Rp0</strong></div></div><div class="kpi"><div><small>Realisasi</small><strong id="rPct">0%</strong></div></div></div>
-      <div class="panel"><div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Kode Kegiatan</th><th>Kode Akun</th><th>Bidang</th><th>Uraian/Kegiatan</th><th>Pagu</th><th>Realisasi</th><th>Sisa</th><th>%</th><th>Status</th></tr></thead><tbody id="reportTable"></tbody></table></div></div>
-    </section>
+        <div class="card">
+          <label>
+            Bidang
+            <select id="mb"></select>
+          </label>
 
-    <section id="page-pengaturan" class="page">
-      <div class="section-intro"><div><span class="eyebrow">AKSES PENGGUNA</span><h3>Pengaturan</h3><p>Ubah username dan password prototype Anda dari halaman ini.</p></div></div>
-      <div class="settings-grid"><div class="panel"><div class="panel-head"><div><h3>Ubah Username & Password</h3><p>Perubahan tersimpan pada browser perangkat yang digunakan.</p></div></div><form id="settingsForm" class="form-grid"><div class="field full"><label>Username Saat Ini</label><input id="currentUsername" readonly></div><div class="field"><label>Username Baru</label><input id="newUsername" required></div><div class="field"><label>Password Lama</label><input id="oldPassword" type="password" required></div><div class="field"><label>Password Baru</label><input id="newPassword" type="password" minlength="6" required></div><div class="field"><label>Konfirmasi Password Baru</label><input id="confirmPassword" type="password" minlength="6" required></div><div class="full actions"><button type="submit" class="btn primary">Simpan Perubahan</button><button type="button" id="clearSettings" class="btn secondary">Kosongkan</button></div></form></div><div class="panel security"><div class="security-icon">🔐</div><h3>Catatan Keamanan</h3><p>Versi ini adalah prototype statis. Kredensial disimpan di localStorage browser, bukan server/database.</p><ul><li>Jangan masukkan data keuangan rahasia pada prototype publik.</li><li>Untuk implementasi resmi diperlukan backend, database, hashing password, session, dan hak akses.</li><li>Gunakan data yang telah diizinkan oleh unit kerja.</li></ul></div></div>
-    </section>
-  </main>
-</div>
+          <p class="lead">
+            Klik baris untuk membuka tingkat berikutnya,
+            dari kode kegiatan sampai kode akun dan item.
+          </p>
 
-<div id="modal" class="modal hidden"><div class="modal-card"><div class="modal-head"><div><span class="eyebrow">FORM INPUT</span><h3 id="modalTitle">Tambah Data Anggaran</h3></div><button id="closeModal" class="icon-btn">×</button></div><form id="dataForm" class="form-grid"><input type="hidden" id="editId"><div class="field"><label>Tanggal</label><input type="date" id="fDate" required></div><div class="field"><label>Bidang</label><select id="fBidang" required></select></div><div class="field"><label>Kode Program/Kegiatan</label><input id="fKegiatanCode" placeholder="Contoh: BF.6161"></div><div class="field"><label>Kode Output</label><input id="fOutputCode" placeholder="Contoh: 051"></div><div class="field"><label>Kode Akun</label><select id="fAkun"><option value="521111">521111 — Belanja Keperluan Perkantoran</option><option value="521211">521211 — Belanja Bahan</option><option value="521219">521219 — Belanja Barang Non Operasional Lainnya</option><option value="521811">521811 — Belanja Barang Persediaan Barang Konsumsi</option><option value="523121">523121 — Belanja Pemeliharaan Peralatan dan Mesin</option><option value="522141">522141 — Belanja Sewa</option><option value="522151">522151 — Belanja Jasa Profesi</option><option value="524111">524111 — Perjalanan Dinas Biasa</option><option value="524113">524113 — Perjalanan Dinas Dalam Kota</option><option value="524114">524114 — Perjalanan Dinas Paket Meeting Dalam Kota</option><option value="532111">532111 — Belanja Modal Peralatan dan Mesin</option></select></div><div class="field"><label>Kode Item</label><input id="fItemCode" placeholder="Contoh: 000001"></div><div class="field full"><label>Nama Kegiatan / Uraian</label><input id="fActivity" placeholder="Contoh: Pemeliharaan Website" required></div><div class="field"><label>Pagu Anggaran (Rp)</label><input type="number" id="fPagu" min="0" required></div><div class="field"><label>Realisasi (Rp)</label><input type="number" id="fReal" min="0" required></div><div class="field"><label>Sisa Anggaran (otomatis)</label><input id="fSisa" readonly></div><div class="field"><label>Status (otomatis)</label><input id="fStatus" readonly></div><div class="field full"><label>Catatan</label><textarea id="fNote" rows="3" placeholder="Catatan monitoring atau tindak lanjut"></textarea></div><div class="full form-foot"><span class="form-help">Rumus: Sisa = Pagu − Realisasi; Realisasi % = Realisasi ÷ Pagu × 100%.</span><button type="submit" class="btn primary">Simpan Data</button></div></form></div></div>
+          <div class="th">
+            <span>Kode</span>
+            <span>Uraian</span>
+            <span>Pagu</span>
+            <span>Sisa</span>
+          </div>
 
-<script src="js/app.js"></script>
+          <div id="mtree"></div>
+        </div>
+      </section>
+
+      <!-- HALAMAN INPUT NOTA DINAS -->
+      <section id="inp" class="pg" hidden>
+        <h2>Input nota dinas</h2>
+
+        <div class="card">
+          <label>
+            Bidang pengusul
+            <select id="ib" required></select>
+          </label>
+
+          <p class="lead">
+            Telusuri kode, lalu tekan Pilih pada kode akun
+            atau item yang akan dipakai.
+          </p>
+
+          <div class="th">
+            <span>Kode</span>
+            <span>Uraian</span>
+            <span>Pagu</span>
+            <span>Sisa</span>
+          </div>
+
+          <div id="itree"></div>
+
+          <div id="sel" class="sel">
+            Belum ada kode akun dipilih.
+          </div>
+        </div>
+
+        <!-- FORMULIR NOTA DINAS -->
+        <form id="f" class="card form">
+
+          <button type="button" class="btn full" id="demo">
+            Isi contoh nodin (Supplies Komputer, seperti file contoh)
+          </button>
+
+          <label>
+            Tanggal
+            <input id="tgl" type="date" required>
+          </label>
+
+          <label>
+            Nomor nota
+            <input id="nomor" required>
+          </label>
+
+          <!--
+            Elemen YTH ini akan diubah oleh app.js
+            menjadi dropdown pilihan jamak.
+            Tidak tersedia kolom pengisian manual.
+          -->
+          <label>
+            Yth. (pilih satu atau beberapa tujuan)
+            <input
+              id="yth"
+              required
+              autocomplete="off"
+              placeholder="Pilih tujuan dari daftar"
+            >
+          </label>
+
+          <label>
+            Dari
+            <input id="dari" required>
+          </label>
+
+          <label>
+            Hal
+            <input
+              id="hal"
+              required
+              placeholder="Contoh: Kebutuhan Belanja Supplies Komputer"
+            >
+          </label>
+
+          <label>
+            Lampiran
+            <input id="lamp" placeholder="Contoh: 1 berkas">
+          </label>
+
+          <label class="full">
+            Keperluan
+            <textarea
+              id="kep"
+              rows="2"
+              required
+              placeholder="Contoh: kegiatan administrasi dan operasional kantor secara umum"
+            ></textarea>
+          </label>
+
+          <label class="full">
+            Rincian RAB untuk halaman lampiran
+            (opsional; satu baris per barang: Nama | Volume | Satuan | Harga satuan)
+            <textarea
+              id="rab"
+              rows="4"
+              placeholder="Tinta Epson T08F1 Black|6|Buah|4560000"
+            ></textarea>
+          </label>
+
+          <label>
+            Anggaran yang diminta (Rp)
+            <input id="minta" type="number" min="1" required>
+          </label>
+
+          <label>
+            Nama penandatangan
+            <input id="ttd" required>
+          </label>
+
+          <label>
+            Kode QR (opsional; kosongkan agar dibuat otomatis)
+            <input id="qr" type="file" accept="image/png,image/jpeg">
+          </label>
+
+          <label>
+            Blok tanda tangan (opsional; kosongkan agar dibuat otomatis)
+            <input id="sig" type="file" accept="image/png,image/jpeg">
+          </label>
+
+          <div class="imgs full">
+            <img id="qrp" alt="Pratinjau QR">
+            <img id="sigp" alt="Pratinjau tanda tangan">
+          </div>
+
+          <label class="full">
+            <span>
+              <input id="blank" type="checkbox" style="width:auto">
+              Kosongkan area QR dan tanda tangan
+              (untuk penandatanganan manual)
+            </span>
+          </label>
+
+          <!-- RINGKASAN ANGGARAN -->
+          <div class="calc full">
+            <div>
+              <span>Total pagu</span>
+              <b id="cP">Rp 0</b>
+            </div>
+
+            <div>
+              <span>Sisa sebelum pengajuan</span>
+              <b id="cB">Rp 0</b>
+            </div>
+
+            <div>
+              <span>Sisa setelah pengajuan</span>
+              <b id="cA">Rp 0</b>
+            </div>
+          </div>
+
+          <p id="msg" class="warn full"></p>
+
+          <button class="btn full">
+            Simpan dan unduh PDF
+          </button>
+
+        </form>
+      </section>
+
+      <!-- HALAMAN RIWAYAT NOTA DINAS -->
+      <section id="his" class="pg" hidden>
+        <h2>Riwayat nota dinas</h2>
+
+        <div class="card tw">
+          <table>
+            <thead>
+              <tr>
+                <th>Tanggal</th>
+                <th>Nomor</th>
+                <th>Bidang</th>
+                <th>Kode akun</th>
+                <th>Diminta</th>
+                <th>Status</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+
+            <tbody id="hb"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- LIBRARY UNTUK PDF, QR CODE, DAN WORD -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.js"></script>
+
+  <!-- FILE JAVASCRIPT PROYEK -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+
 </body>
 </html>
