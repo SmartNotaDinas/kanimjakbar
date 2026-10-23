@@ -1900,8 +1900,13 @@ function withAuto(note) {
     return new Promise((resolve, reject) => {
       const existing = document.querySelector(`script[data-snd-lib="${label}"]`);
       if (existing) {
-        existing.addEventListener("load", resolve, { once: true });
-        existing.addEventListener("error", () => reject(new Error(`Pustaka ${label} gagal dimuat.`)), { once: true });
+        if (readyCheck()) { resolve(); return; }
+        const onLoad = () => {
+          if (readyCheck()) resolve();
+          else reject(new Error(`Pustaka ${label} selesai dimuat tetapi tidak tersedia.`));
+        };
+        existing.addEventListener("load", onLoad, { once: true });
+        existing.addEventListener("error", () => reject(new Error(`Pustaka ${label} gagal dimuat. Periksa koneksi internet.`)), { once: true });
         return;
       }
       const script = document.createElement("script");
@@ -1973,7 +1978,7 @@ function withAuto(note) {
         for (let i=1; i<line.items.length; i++) {
           const cur = line.items[i];
           const gap = cur.x - (prev.x + prev.width);
-          if (gap > 22) { cells.push(cellText.trim()); cellText = cur.text; }
+          if (gap > 16) { cells.push(cellText.trim()); cellText = cur.text; }
           else cellText += " " + cur.text;
           prev = cur;
         }
@@ -1981,7 +1986,7 @@ function withAuto(note) {
         allRows.push(cells);
       }
     }
-    if (allRows.length < 2) throw new Error("Teks tabel tidak berhasil dibaca dari PDF. Pastikan PDF bukan hasil scan gambar dan teksnya dapat dipilih.");
+    if (allRows.length < 2) throw new Error("PDF tidak memiliki teks tabel yang dapat dibaca. Jika PDF hasil scan/foto, lakukan OCR atau unggah versi Excel/Word yang berisi teks.");
     return allRows;
   }
   function importRows(rows, fileName) {
@@ -1990,17 +1995,28 @@ function withAuto(note) {
     let headerIndex = 0, bestScore = -1;
     for (let i = 0; i < Math.min(rows.length, 30); i++) {
       const headers = rows[i].map(normHeader);
-      const score = [/kode akun|akun|account|kode satker|kode program|kode kegiatan|kode output|kode sub output|kode komponen|kode subkomponen/i, /pagu|anggaran/i, /realisasi/i].reduce((n, re) => n + (headers.some(h => re.test(h)) ? 1 : 0), 0);
+      const score = [
+        /kode akun|akun belanja|account code|kode rekening|kode akun belanja|kode sub akun|kode subakun|^akun$|^kode$/,
+        /pagu|anggaran|jumlah dana|nilai pagu/,
+        /realisasi|realisasi belanja/,
+        /blokir|diblokir/
+      ].reduce((n, re) => n + (headers.some(h => re.test(h)) ? 1 : 0), 0);
       if (score > bestScore) { bestScore = score; headerIndex = i; }
       if (score >= 3) break;
     }
     const headers = rows[headerIndex].map(v => String(v ?? "").trim());
     const dataRows = rows.slice(headerIndex + 1).filter(r => r.some(v => String(v ?? "").trim()));
-    const codeCol = findColumn(headers, [/^kode akun$/, /^akun$/, /account code/, /^kode$/]);
-    const paguCol = findColumn(headers, [/pagu.*(dipa|anggaran)?/, /jumlah pagu/, /total anggaran/, /^anggaran$/]);
-    const realCol = findColumn(headers, [/realisasi/, /realisasi.*anggaran/]);
+    const codeCol = findColumn(headers, [
+      /kode akun/, /akun belanja/, /kode rekening/, /account code/,
+      /kode sub akun/, /kode subakun/, /^akun$/, /^kode$/
+    ]);
+    const paguCol = findColumn(headers, [
+      /pagu.*(dipa|anggaran)?/, /jumlah pagu/, /total anggaran/,
+      /pagu efektif/, /pagu awal/, /^anggaran$/, /jumlah dana/
+    ]);
+    const realCol = findColumn(headers, [/realisasi/, /realisasi.*anggaran/, /realisasi belanja/]);
     const lockCol = findColumn(headers, [/blokir/, /diblokir/, /pagu.*blokir/, /cadangan/]);
-    const bidangCol = findColumn(headers, [/bidang/, /unit kerja/, /nama satker/, /satker/, /unit organisasi/]);
+    const bidangCol = findColumn(headers, [/bidang/, /unit kerja/, /nama satker/, /^satker$/, /unit organisasi/]);
     if (codeCol < 0) throw new Error("Kolom kode akun tidak terdeteksi. Pastikan file memiliki header Kode Akun/Akun/Kode.");
     if (paguCol < 0 && realCol < 0 && lockCol < 0) throw new Error("Kolom Pagu, Realisasi, atau Blokir tidak terdeteksi pada header file.");
     const savedValues = {};
