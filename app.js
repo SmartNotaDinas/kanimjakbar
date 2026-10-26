@@ -344,10 +344,34 @@ $("loginForm").onsubmit = event => {
 
   const username = $("u").value.trim().toLowerCase();
   const password = $("p").value;
-  const account = Object.values(ACCOUNTS).find(a => a.username.toLowerCase() === username);
+  let account = Object.values(ACCOUNTS).find(a => a.username.toLowerCase() === username);
 
-  if (!account || account.password !== password) {
-    $("err").textContent = "Username atau password salah.";
+  /*
+   * PEMULIHAN AKSES ADMIN:
+   * Jika kredensial Admin tersimpan di browser berbeda dari akun bawaan,
+   * izinkan login pemulihan menggunakan admin / Admin#2026. Hanya kredensial
+   * Admin yang dipulihkan; akun bidang, riwayat Nota Dinas, dan FA Detail
+   * tidak dihapus atau diubah.
+   */
+  const adminAccount = ACCOUNTS.admin;
+  const isAdminRecovery = username === "admin" && password === "Admin#2026";
+
+  if (isAdminRecovery && adminAccount) {
+    adminAccount.username = "admin";
+    adminAccount.password = "Admin#2026";
+    adminAccount.role = "admin";
+    account = adminAccount;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem("snd_accounts") || "{}");
+      const preserved = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+      preserved.admin = { username: "admin", password: "Admin#2026" };
+      localStorage.setItem("snd_accounts", JSON.stringify(preserved));
+    } catch (e) {
+      console.warn("Kredensial Admin dipulihkan untuk sesi ini, tetapi tidak dapat disimpan.", e);
+    }
+  } else if (!account || account.password !== password) {
+    $("err").textContent = "Username atau password salah. Untuk pemulihan Admin, gunakan username admin dan password Admin#2026.";
     return;
   }
 
