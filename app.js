@@ -169,6 +169,7 @@ function applySavedFAData() {
       if (Number.isFinite(Number(values.pagu))) node.pagu = Number(values.pagu);
       if (Number.isFinite(Number(values.real))) node.real = Number(values.real);
       if (Number.isFinite(Number(values.lock))) node.lock = Number(values.lock);
+      if (Number.isFinite(Number(values.faRemaining))) node.faRemaining = Number(values.faRemaining);
     });
   } catch (e) {
     console.warn("Data FA Detail tersimpan tidak dapat diterapkan.", e);
@@ -190,14 +191,8 @@ const used = node => notas
   )
   .reduce((sum, n) => sum + (Number(n.minta) || 0), 0);
 
-// Sisa pagu resmi FA Detail: Pagu Revisi dikurangi Lock Pagu dan
-// Realisasi s.d. Periode. Pengajuan Nota Dinas tidak mengubah angka FA Detail.
-const sisaFA = node =>
-  Number(node.pagu || 0) - Number(node.lock || 0) - Number(node.real || 0);
-
-// Sisa tersedia untuk validasi pengajuan Nota Dinas, setelah memperhitungkan
-// permintaan Nota Dinas yang belum ditolak.
-const sisa = node => sisaFA(node) - used(node);
+const sisa = node =>
+  (Number.isFinite(Number(node.faRemaining)) ? Number(node.faRemaining) : node.pagu - node.lock - node.real) - used(node);
 
 const cls = value => value < 0 ? "neg" : "pos";
 
@@ -219,7 +214,7 @@ const row = (node, pick) => `
   <span class="c">${esc(node.code)}</span>
   <span>${esc(node.name)}</span>
   <span class="n">${rp(node.pagu)}</span>
-  <span class="n ${cls(sisaFA(node))}">${rp(sisaFA(node))}</span>
+  <span class="n ${cls(sisa(node))}">${rp(sisa(node))}</span>
   ${
     pick && !node.kids.length
       ? `<button type="button" class="pk" data-id="${esc(node.path)}">Pilih</button>`
@@ -396,7 +391,7 @@ function renderMon() {
   $("cards").innerHTML = keys.map(bidang => {
     const roots = TREE[bidang] || [];
     const pagu = roots.reduce((sum, node) => sum + node.pagu, 0);
-    const remaining = roots.reduce((sum, node) => sum + sisaFA(node), 0);
+    const remaining = roots.reduce((sum, node) => sum + sisa(node), 0);
 
     return `
       <button type="button"
@@ -2016,63 +2011,59 @@ function withAuto(note) {
   function importRows(rows, fileName) {
     if (!Array.isArray(rows) || rows.length < 2) throw new Error("File tidak memiliki baris data yang cukup.");
 
-    // Format khusus PDF "Laporan Ketersediaan Dana Detail TA 2026".
-    // Kode akun 6 digit berada di awal uraian; angka diambil setelah uraian.
-    // Untuk menghindari salah baca kolom, baris diproses dari teks satu baris utuh.
-    const faAccountRows = [];
+    // Format khusus PDF FA Detail: impor kode kegiatan (mis. BAA.001)
+    // dan kode akun 6 digit. Monitoring pada tingkat kegiatan harus mengikuti
+    // angka s.d. Periode yang tercantum langsung pada baris kegiatan FA Detail.
+    const faRows = [];
     for (const row of rows) {
       const cells = (Array.isArray(row) ? row : [row]).map(v => String(v ?? "").trim()).filter(Boolean);
       const line = cells.join(" ").replace(/\s+/g, " ").trim();
-      // Kode akun anggaran berupa 6 digit dan tidak diawali 00 (baris item dikecualikan).
-      const codeMatch = line.match(/^\s*(\d{6})\s+(.+?)\s+((?:-?\d[\d,.]*\s+){4,}-?\d[\d,.]*(?:\s|$))/);
-      if (!codeMatch || /^00/.test(codeMatch[1])) continue;
-      const code = codeMatch[1];
-      const afterDescription = codeMatch[3].trim();
+      // Dukungan kode seperti BAA.001, 051, 051.0A, dan 521211.
+      const match = line.match(/^\s*([A-Z]{2,5}\.\d{3}|\d{3}(?:\.[A-Z0-9]+)?|\d{6})\s+(.+?)\s+(?=-?\d[\d,.]*(?:\s|$))/i);
+      if (!match) continue;
+      const code = match[1].toUpperCase();
+      if (/^00/.test(code)) continue; // abaikan kode item seperti 000017
+      const afterDescription = line.slice(match[0].length).trim();
       const tokens = afterDescription.match(/-?\d[\d,]*(?:\.\d+)?/g) || [];
-      const numericCells = tokens.map(token => parseNumber(token)).filter(n => n !== null && Number.isFinite(n));
-      // Kolom yang diharapkan: Pagu Revisi, Lock Pagu, Periode Lalu,
-      // Periode Ini, s.d. Periode, persen, Sisa Anggaran.
-      if (numericCells.length < 5) continue;
-      const pagu = numericCells[0];
-      const lock = numericCells[1];
-      const real = numericCells[4];
-      if (![pagu, lock, real].every(Number.isFinite)) continue;
-      faAccountRows.push({ code, description: codeMatch[2].trim(), pagu, lock, real });
+      const numbers = tokens.map(parseNumber).filter(n => n !== null && Number.isFinite(n));
+      // Pagu Revisi, Lock Pagu, Periode Lalu, Periode Ini, s.d. Periode, %, Sisa.
+      if (numbers.length < 5) continue;
+      faRows.push({ code, description: match[2].trim(), pagu: numbers[0], lock: numbers[1], real: numbers[4], remaining: numbers.length >= 7 ? numbers[numbers.length - 1] : null });
     }
-    if (faAccountRows.length) {
-      const byCode = {};
-      Object.values(NODES).forEach(node => {
-        const key = String(node.code ?? "").replace(/[^0-9A-Za-z.]/g, "");
-        (byCode[key] ||= []).push(node);
-      });
+
+    if (faRows.length) {
+      const normalizeName = value => normHeader(value).replace(/\b(ri|di|dan|ke|yang)\b/g, " ").replace(/\s+/g, " ").trim();
+      const nodes = Object.values(NODES);
       const savedValues = {};
       let updated = 0;
-      let ambiguous = 0;
-      for (const item of faAccountRows) {
-        const candidates = byCode[item.code] || byCode[item.code.replace(/\./g, "")];
-        if (!candidates?.length) continue;
-        // Kode akun dapat berulang pada beberapa bidang. Cocokkan juga nama uraian
-        // sebelum mengubah nilai agar tidak menimpa cabang yang salah.
-        let matched = candidates;
-        const descKey = normHeader(item.description);
-        if (candidates.length > 1 && descKey) {
-          const exact = candidates.filter(node => normHeader(node.name) === descKey);
-          if (exact.length) matched = exact;
-          else {
-            const similar = candidates.filter(node => {
-              const nodeName = normHeader(node.name);
-              return nodeName && (descKey.includes(nodeName) || nodeName.includes(descKey));
-            });
-            if (similar.length) matched = similar;
-          }
+      let skipped = 0;
+      for (const item of faRows) {
+        let candidates = nodes.filter(node => String(node.code || "").toUpperCase() === item.code);
+        if (!candidates.length) continue;
+        // Bila kode berulang, cocokkan uraian terlebih dahulu. Jangan pernah
+        // menyalin satu baris FA ke beberapa node sekaligus.
+        const desc = normalizeName(item.description);
+        const exact = candidates.filter(node => normalizeName(node.name) === desc);
+        if (exact.length === 1) candidates = exact;
+        else if (candidates.length > 1) {
+          const partial = candidates.filter(node => {
+            const name = normalizeName(node.name);
+            return name && desc && (name.includes(desc) || desc.includes(name));
+          });
+          if (partial.length === 1) candidates = partial;
+          else { skipped++; continue; }
         }
-        if (matched.length !== 1) { ambiguous++; continue; }
-        const node = matched[0];
-        const values = { pagu: item.pagu, real: item.real, lock: item.lock };
+        if (candidates.length !== 1) { skipped++; continue; }
+        const node = candidates[0];
+        const values = { pagu: item.pagu, lock: item.lock, real: item.real };
+        // Simpan sisa resmi FA Detail bila terdeteksi pada baris. Sisa ini
+        // dipakai untuk tampilan monitoring; pengajuan nota tetap dihitung terpisah.
+        if (item.remaining !== null && Number.isFinite(item.remaining)) values.faRemaining = item.remaining;
         savedValues[node.path] = { ...(savedValues[node.path] || {}), ...values };
-        node.pagu = values.pagu;
-        node.real = values.real;
-        node.lock = values.lock;
+        node.pagu = item.pagu;
+        node.lock = item.lock;
+        node.real = item.real;
+        node.faRemaining = values.faRemaining;
         updated++;
       }
       if (updated) {
@@ -2081,7 +2072,7 @@ function withAuto(note) {
         catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
         renderMon();
         renderAdminTools();
-        $("faImportMessage").textContent = `Berhasil mengimpor ${updated} baris akun dari FA Detail. Nilai yang digunakan: Pagu Revisi, Lock Pagu, dan Realisasi s.d. Periode.${ambiguous ? ` ${ambiguous} baris berkode ganda dilewati agar tidak salah bidang.` : ""} Data tersimpan pada browser ini.`;
+        $("faImportMessage").textContent = `Berhasil mengimpor ${updated} baris FA Detail, termasuk kode kegiatan dan akun. Sisa Monitoring mengikuti FA Detail pada baris yang cocok.${skipped ? ` ${skipped} baris berkode ganda dilewati agar tidak salah akun.` : ""} Data tersimpan pada browser ini.`;
         return;
       }
     }
