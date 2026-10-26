@@ -2163,7 +2163,7 @@ function withAuto(note) {
         rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
       } else {
         throw new Error("Format tidak didukung. Pilih Excel (.xlsx/.xls), Word (.docx), atau PDF (.pdf). Format Word .doc lama tidak didukung.");
-      }
+      R
       importRows(rows, file.name);
     } catch (error) {
       $("faImportMessage").textContent = "Gagal mengimpor: " + (error?.message || "format file tidak dikenali.");
