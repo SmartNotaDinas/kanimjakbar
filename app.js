@@ -190,8 +190,14 @@ const used = node => notas
   )
   .reduce((sum, n) => sum + (Number(n.minta) || 0), 0);
 
-const sisa = node =>
-  node.pagu - node.lock - node.real - used(node);
+// Sisa pagu resmi FA Detail: Pagu Revisi dikurangi Lock Pagu dan
+// Realisasi s.d. Periode. Pengajuan Nota Dinas tidak mengubah angka FA Detail.
+const sisaFA = node =>
+  Number(node.pagu || 0) - Number(node.lock || 0) - Number(node.real || 0);
+
+// Sisa tersedia untuk validasi pengajuan Nota Dinas, setelah memperhitungkan
+// permintaan Nota Dinas yang belum ditolak.
+const sisa = node => sisaFA(node) - used(node);
 
 const cls = value => value < 0 ? "neg" : "pos";
 
@@ -213,7 +219,7 @@ const row = (node, pick) => `
   <span class="c">${esc(node.code)}</span>
   <span>${esc(node.name)}</span>
   <span class="n">${rp(node.pagu)}</span>
-  <span class="n ${cls(sisa(node))}">${rp(sisa(node))}</span>
+  <span class="n ${cls(sisaFA(node))}">${rp(sisaFA(node))}</span>
   ${
     pick && !node.kids.length
       ? `<button type="button" class="pk" data-id="${esc(node.path)}">Pilih</button>`
@@ -390,7 +396,7 @@ function renderMon() {
   $("cards").innerHTML = keys.map(bidang => {
     const roots = TREE[bidang] || [];
     const pagu = roots.reduce((sum, node) => sum + node.pagu, 0);
-    const remaining = roots.reduce((sum, node) => sum + sisa(node), 0);
+    const remaining = roots.reduce((sum, node) => sum + sisaFA(node), 0);
 
     return `
       <button type="button"
