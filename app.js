@@ -1803,7 +1803,18 @@ function withAuto(note) {
       </form>
       <hr style="margin:26px 0;">
       <h2>Impor Data FA Detail Harian</h2>
-      <p>Admin dapat mengunggah FA Detail setiap pagi sebelum aplikasi digunakan dalam format Excel (.xlsx/.xls), Word (.docx), atau PDF (.pdf). File harus memuat tabel dengan kolom kode akun serta pagu, realisasi, atau blokir. File Word/PDF paling baik dibaca jika teksnya dapat dipilih dan tabelnya tersusun rapi.</p>
+      <div class="fa-upload-guide" style="line-height:1.65;margin:12px 0 16px;">
+        <p><strong>Upload FA Detail Anggaran</strong></p>
+        <p>Admin dapat mengunggah laporan FA Detail setiap pagi sebelum aplikasi digunakan. Format file yang didukung: Excel (.xlsx/.xls), Word (.docx), atau PDF (.pdf).</p>
+        <p><strong>Ketentuan file:</strong></p>
+        <ul style="padding-left:22px;">
+          <li><strong>Excel:</strong> disarankan memiliki kolom kode akun, uraian, pagu, realisasi, dan/atau blokir.</li>
+          <li><strong>Word/PDF:</strong> sistem dapat membaca kode akun yang tercantum di awal baris maupun pada kolom kode akun, dengan syarat teks dapat dipilih dan struktur tabel terbaca dengan jelas.</li>
+          <li>Untuk laporan FA Detail, sistem menggunakan data <strong>Pagu Revisi</strong>, <strong>Realisasi s.d. Periode</strong>, dan <strong>Lock Pagu</strong> apabila tersedia.</li>
+          <li>Baris rincian kegiatan dan subtotal harus dibedakan dari baris kode akun agar tidak terjadi kesalahan pembacaan.</li>
+        </ul>
+        <p>Setelah impor berhasil, admin perlu memeriksa hasil pembacaan sebelum data digunakan untuk monitoring anggaran.</p>
+      </div>
       <p><strong>Penting:</strong> pada versi GitHub Pages statis ini, file yang diunggah hanya tersimpan di browser/perangkat tempat Admin mengunggah. Data impor hanya tersimpan di browser/perangkat Admin dan belum otomatis tersinkron ke perangkat lain.</p>
       <label>File FA Detail (Excel, Word, atau PDF)
         <input id="faDetailFile" type="file" accept=".xlsx,.xls,.docx,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf" style="display:block;width:100%;padding:10px;margin-top:8px;">
@@ -1896,24 +1907,31 @@ function withAuto(note) {
     return headers.findIndex(h => patterns.some(pattern => pattern.test(normHeader(h))));
   }
   function loadScript(src, readyCheck, label) {
+    // Jangan memuat pustaka yang sama lebih dari sekali.
     if (readyCheck()) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const existing = document.querySelector(`script[data-snd-lib="${label}"]`);
+      const fail = () => reject(new Error(`Pustaka ${label} gagal dimuat. Periksa koneksi internet atau pemblokiran CDN, lalu muat ulang halaman.`));
+      const verify = () => {
+        if (readyCheck()) resolve();
+        else reject(new Error(`Pustaka ${label} selesai diunduh tetapi tidak tersedia. Periksa koneksi internet atau pemblokiran CDN, lalu muat ulang halaman.`));
+      };
       if (existing) {
         if (readyCheck()) { resolve(); return; }
-        const onLoad = () => {
-          if (readyCheck()) resolve();
-          else reject(new Error(`Pustaka ${label} selesai dimuat tetapi tidak tersedia.`));
-        };
-        existing.addEventListener("load", onLoad, { once: true });
-        existing.addEventListener("error", () => reject(new Error(`Pustaka ${label} gagal dimuat. Periksa koneksi internet.`)), { once: true });
+        if (existing.dataset.sndLoaded === "true") { verify(); return; }
+        existing.addEventListener("load", verify, { once: true });
+        existing.addEventListener("error", fail, { once: true });
         return;
       }
       const script = document.createElement("script");
       script.dataset.sndLib = label;
       script.src = src;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error(`Pustaka ${label} gagal dimuat. Periksa koneksi internet atau gunakan format Excel, Word, atau PDF.`));
+      script.async = true;
+      script.onload = () => {
+        script.dataset.sndLoaded = "true";
+        verify();
+      };
+      script.onerror = fail;
       document.head.appendChild(script);
     });
   }
@@ -1991,6 +2009,76 @@ function withAuto(note) {
   }
   function importRows(rows, fileName) {
     if (!Array.isArray(rows) || rows.length < 2) throw new Error("File tidak memiliki baris data yang cukup.");
+
+    // Format khusus PDF "Laporan Ketersediaan Dana Detail TA 2026".
+    // Kode akun 6 digit berada di awal uraian; angka diambil setelah uraian.
+    // Untuk menghindari salah baca kolom, baris diproses dari teks satu baris utuh.
+    const faAccountRows = [];
+    for (const row of rows) {
+      const cells = (Array.isArray(row) ? row : [row]).map(v => String(v ?? "").trim()).filter(Boolean);
+      const line = cells.join(" ").replace(/\s+/g, " ").trim();
+      // Kode akun anggaran berupa 6 digit dan tidak diawali 00 (baris item dikecualikan).
+      const codeMatch = line.match(/^\s*(\d{6})\s+(.+?)\s+((?:-?\d[\d,.]*\s+){4,}-?\d[\d,.]*(?:\s|$))/);
+      if (!codeMatch || /^00/.test(codeMatch[1])) continue;
+      const code = codeMatch[1];
+      const afterDescription = codeMatch[3].trim();
+      const tokens = afterDescription.match(/-?\d[\d,]*(?:\.\d+)?/g) || [];
+      const numericCells = tokens.map(token => parseNumber(token)).filter(n => n !== null && Number.isFinite(n));
+      // Kolom yang diharapkan: Pagu Revisi, Lock Pagu, Periode Lalu,
+      // Periode Ini, s.d. Periode, persen, Sisa Anggaran.
+      if (numericCells.length < 5) continue;
+      const pagu = numericCells[0];
+      const lock = numericCells[1];
+      const real = numericCells[4];
+      if (![pagu, lock, real].every(Number.isFinite)) continue;
+      faAccountRows.push({ code, description: codeMatch[2].trim(), pagu, lock, real });
+    }
+    if (faAccountRows.length) {
+      const byCode = {};
+      Object.values(NODES).forEach(node => {
+        const key = String(node.code ?? "").replace(/[^0-9A-Za-z.]/g, "");
+        (byCode[key] ||= []).push(node);
+      });
+      const savedValues = {};
+      let updated = 0;
+      let ambiguous = 0;
+      for (const item of faAccountRows) {
+        const candidates = byCode[item.code] || byCode[item.code.replace(/\./g, "")];
+        if (!candidates?.length) continue;
+        // Kode akun dapat berulang pada beberapa bidang. Cocokkan juga nama uraian
+        // sebelum mengubah nilai agar tidak menimpa cabang yang salah.
+        let matched = candidates;
+        const descKey = normHeader(item.description);
+        if (candidates.length > 1 && descKey) {
+          const exact = candidates.filter(node => normHeader(node.name) === descKey);
+          if (exact.length) matched = exact;
+          else {
+            const similar = candidates.filter(node => {
+              const nodeName = normHeader(node.name);
+              return nodeName && (descKey.includes(nodeName) || nodeName.includes(descKey));
+            });
+            if (similar.length) matched = similar;
+          }
+        }
+        if (matched.length !== 1) { ambiguous++; continue; }
+        const node = matched[0];
+        const values = { pagu: item.pagu, real: item.real, lock: item.lock };
+        savedValues[node.path] = { ...(savedValues[node.path] || {}), ...values };
+        node.pagu = values.pagu;
+        node.real = values.real;
+        node.lock = values.lock;
+        updated++;
+      }
+      if (updated) {
+        const record = { importedAt: new Date().toISOString(), fileName, values: savedValues, updatedRows: updated };
+        try { localStorage.setItem("snd_fa_detail", JSON.stringify(record)); }
+        catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
+        renderMon();
+        renderAdminTools();
+        $("faImportMessage").textContent = `Berhasil mengimpor ${updated} baris akun dari FA Detail. Nilai yang digunakan: Pagu Revisi, Lock Pagu, dan Realisasi s.d. Periode.${ambiguous ? ` ${ambiguous} baris berkode ganda dilewati agar tidak salah bidang.` : ""} Data tersimpan pada browser ini.`;
+        return;
+      }
+    }
     // FA Detail kadang memiliki beberapa baris judul; cari baris header yang paling mungkin.
     let headerIndex = 0, bestScore = -1;
     for (let i = 0; i < Math.min(rows.length, 30); i++) {
@@ -2066,11 +2154,11 @@ function withAuto(note) {
     try {
       let rows;
       const name = file.name.toLowerCase();
-      if (name.endsWith(".docx") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      if (name.endsWith(".docx")) {
         rows = await docxRows(file);
-      } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
+      } else if (name.endsWith(".pdf")) {
         rows = await pdfRows(file);
-      } else if (name.endsWith(".xlsx") || name.endsWith(".xls") || file.type.includes("spreadsheet") || file.type === "application/vnd.ms-excel") {
+      } else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
         await loadXlsx();
         const buffer = await file.arrayBuffer();
         const workbook = window.XLSX.read(buffer, { type: "array", cellDates: false });
