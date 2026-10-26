@@ -191,8 +191,18 @@ const used = node => notas
   )
   .reduce((sum, n) => sum + (Number(n.minta) || 0), 0);
 
-const sisa = node =>
-  (Number.isFinite(Number(node.faRemaining)) ? Number(node.faRemaining) : node.pagu - node.lock - node.real) - used(node);
+// Jika baris akun memiliki sisa resmi dari FA Detail, tampilkan angka itu
+// secara langsung. Jangan mengurangi lagi dengan nilai Nota Dinas karena
+// angka sisa FA Detail sudah merupakan saldo pada periode laporan tersebut.
+// Untuk node yang tidak tercakup dalam impor FA Detail, gunakan perhitungan
+// dari data.js dan Nota Dinas seperti sebelumnya.
+const sisa = node => {
+  const faRemaining = node.faRemaining;
+  if (faRemaining !== null && faRemaining !== undefined && faRemaining !== "" && Number.isFinite(Number(faRemaining))) {
+    return Number(faRemaining);
+  }
+  return Number(node.pagu || 0) - Number(node.lock || 0) - Number(node.real || 0) - used(node);
+};
 
 const cls = value => value < 0 ? "neg" : "pos";
 
@@ -2163,7 +2173,7 @@ function withAuto(note) {
         rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
       } else {
         throw new Error("Format tidak didukung. Pilih Excel (.xlsx/.xls), Word (.docx), atau PDF (.pdf). Format Word .doc lama tidak didukung.");
-      R
+      }
       importRows(rows, file.name);
     } catch (error) {
       $("faImportMessage").textContent = "Gagal mengimpor: " + (error?.message || "format file tidak dikenali.");
