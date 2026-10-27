@@ -161,6 +161,7 @@ const save = () => {
 // Terapkan data FA Detail terakhir yang diimpor Admin pada browser ini.
 function applySavedFAData() {
   try {
+    Object.values(NODES).forEach(node => { delete node.faImported; delete node.faRemaining; });
     const saved = JSON.parse(localStorage.getItem("snd_fa_detail") || "null");
     if (!saved || !saved.values) return;
     Object.entries(saved.values).forEach(([path, values]) => {
@@ -169,7 +170,8 @@ function applySavedFAData() {
       if (Number.isFinite(Number(values.pagu))) node.pagu = Number(values.pagu);
       if (Number.isFinite(Number(values.real))) node.real = Number(values.real);
       if (Number.isFinite(Number(values.lock))) node.lock = Number(values.lock);
-      if (Number.isFinite(Number(values.faRemaining))) node.faRemaining = Number(values.faRemaining);
+      if (values.faRemaining !== undefined && values.faRemaining !== null && values.faRemaining !== "" && Number.isFinite(Number(values.faRemaining))) node.faRemaining = Number(values.faRemaining);
+      node.faImported = true;
     });
   } catch (e) {
     console.warn("Data FA Detail tersimpan tidak dapat diterapkan.", e);
@@ -196,10 +198,31 @@ const used = node => notas
 // angka sisa FA Detail sudah merupakan saldo pada periode laporan tersebut.
 // Untuk node yang tidak tercakup dalam impor FA Detail, gunakan perhitungan
 // dari data.js dan Nota Dinas seperti sebelumnya.
+// Tandai baris yang benar-benar berasal dari snapshot FA Detail.
+// Nilai induk dihitung dari anak jika saldo induk tidak diimpor langsung.
+const hasImportedFA = node => !!node && (
+  node.faImported === true || (node.kids || []).some(hasImportedFA)
+);
+
+const effectivePagu = node => {
+  if (!node) return 0;
+  if (node.faImported === true) return Number(node.pagu) || 0;
+  if ((node.kids || []).some(hasImportedFA)) {
+    return node.kids.reduce((sum, child) => sum + effectivePagu(child), 0);
+  }
+  return Number(node.pagu) || 0;
+};
+
 const sisa = node => {
+  if (!node) return 0;
   const faRemaining = node.faRemaining;
-  if (faRemaining !== null && faRemaining !== undefined && faRemaining !== "" && Number.isFinite(Number(faRemaining))) {
+  if (node.faImported === true && faRemaining !== null && faRemaining !== undefined && faRemaining !== "" && Number.isFinite(Number(faRemaining))) {
     return Number(faRemaining);
+  }
+  // Jika impor hanya berisi akun rincian, jumlahkan saldo rincian tersebut
+  // sehingga ringkasan bidang dan akun induk ikut berubah.
+  if ((node.kids || []).some(hasImportedFA)) {
+    return node.kids.reduce((sum, child) => sum + sisa(child), 0);
   }
   return Number(node.pagu || 0) - Number(node.lock || 0) - Number(node.real || 0) - used(node);
 };
@@ -424,7 +447,7 @@ function renderMon() {
 
   $("cards").innerHTML = keys.map(bidang => {
     const roots = TREE[bidang] || [];
-    const pagu = roots.reduce((sum, node) => sum + node.pagu, 0);
+    const pagu = roots.reduce((sum, node) => sum + effectivePagu(node), 0);
     const remaining = roots.reduce((sum, node) => sum + sisa(node), 0);
 
     return `
@@ -2056,13 +2079,18 @@ function withAuto(note) {
       const match = line.match(/^\s*([A-Z]{2,5}\.\d{3}|\d{3}(?:\.[A-Z0-9]+)?|\d{6})\s+(.+?)\s+(?=-?\d[\d,.]*(?:\s|$))/i);
       if (!match) continue;
       const code = match[1].toUpperCase();
-      if (/^00/.test(code)) continue; // abaikan kode item seperti 000017
+      // Kode rincian 000017, 000018, dst. adalah baris data yang sah dan
+      // harus ikut dipetakan ke node yang sama di data.js.
       const afterDescription = line.slice(match[0].length).trim();
       const tokens = afterDescription.match(/-?\d[\d,]*(?:\.\d+)?/g) || [];
       const numbers = tokens.map(parseNumber).filter(n => n !== null && Number.isFinite(n));
       // Pagu Revisi, Lock Pagu, Periode Lalu, Periode Ini, s.d. Periode, %, Sisa.
+      // Minimal kolom numerik: pagu, lock, periode lalu, periode ini,
+      // s.d. periode. Persentase (mis. 55.38) bukan saldo; sisa hanya
+      // diambil jika ada setidaknya 7 nilai numerik pada baris.
       if (numbers.length < 5) continue;
-      faRows.push({ code, description: match[2].trim(), pagu: numbers[0], lock: numbers[1], real: numbers[4], remaining: numbers.length >= 7 ? numbers[numbers.length - 1] : null });
+      const remaining = numbers.length >= 7 ? numbers[numbers.length - 1] : null;
+      faRows.push({ code, description: match[2].trim(), pagu: numbers[0], lock: numbers[1], real: numbers[4], remaining });
     }
 
     if (faRows.length) {
@@ -2071,9 +2099,10 @@ function withAuto(note) {
       const savedValues = {};
       let updated = 0;
       let skipped = 0;
+      let unmatched = 0;
       for (const item of faRows) {
         let candidates = nodes.filter(node => String(node.code || "").toUpperCase() === item.code);
-        if (!candidates.length) continue;
+        if (!candidates.length) { unmatched++; continue; }
         // Bila kode berulang, cocokkan uraian terlebih dahulu. Jangan pernah
         // menyalin satu baris FA ke beberapa node sekaligus.
         const desc = normalizeName(item.description);
@@ -2097,16 +2126,29 @@ function withAuto(note) {
         node.pagu = item.pagu;
         node.lock = item.lock;
         node.real = item.real;
-        node.faRemaining = values.faRemaining;
+        if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
+        else delete node.faRemaining;
+        node.faImported = true;
         updated++;
       }
       if (updated) {
+        // Terapkan snapshot baru secara konsisten dan lepaskan penanda impor lama.
+        Object.values(NODES).forEach(node => { delete node.faImported; delete node.faRemaining; });
+        Object.entries(savedValues).forEach(([path, values]) => {
+          const node = NODES[path];
+          if (!node) return;
+          node.faImported = true;
+          if (values.pagu !== undefined) node.pagu = values.pagu;
+          if (values.real !== undefined) node.real = values.real;
+          if (values.lock !== undefined) node.lock = values.lock;
+          if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
+        });
         const record = { importedAt: new Date().toISOString(), fileName, values: savedValues, updatedRows: updated };
         try { localStorage.setItem("snd_fa_detail", JSON.stringify(record)); }
         catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
         renderMon();
         renderAdminTools();
-        $("faImportMessage").textContent = `Berhasil mengimpor ${updated} baris FA Detail, termasuk kode kegiatan dan akun. Sisa Monitoring mengikuti FA Detail pada baris yang cocok.${skipped ? ` ${skipped} baris berkode ganda dilewati agar tidak salah akun.` : ""} Data tersimpan pada browser ini.`;
+        $("faImportMessage").textContent = `Impor FA Detail selesai: ${updated} baris berhasil dipetakan.${unmatched ? ` ${unmatched} baris tidak cocok dengan kode pada data.js.` : ""}${skipped ? ` ${skipped} baris berkode ganda dilewati agar tidak salah akun.` : ""} Sisa Monitoring memakai kolom SISA ANGGARAN pada baris yang cocok; jika kolom sisa tidak terbaca, aplikasi menghitung pagu − lock − realisasi. Data tersimpan pada browser ini.`;
         return;
       }
     }
@@ -2133,11 +2175,12 @@ function withAuto(note) {
       /pagu.*(dipa|anggaran)?/, /jumlah pagu/, /total anggaran/,
       /pagu efektif/, /pagu awal/, /^anggaran$/, /jumlah dana/
     ]);
-    const realCol = findColumn(headers, [/realisasi/, /realisasi.*anggaran/, /realisasi belanja/]);
-    const lockCol = findColumn(headers, [/blokir/, /diblokir/, /pagu.*blokir/, /cadangan/]);
+    const realCol = findColumn(headers, [/realisasi.*s\.d\.?\s*periode/, /realisasi.*sampai.*periode/, /realisasi/, /realisasi.*anggaran/, /realisasi belanja/]);
+    const lockCol = findColumn(headers, [/lock pagu/, /pagu.*lock/, /blokir/, /diblokir/, /pagu.*blokir/, /cadangan/]);
+    const remainingCol = findColumn(headers, [/sisa.*pagu/, /sisa.*anggaran/, /sisa dana/, /saldo tersedia/, /pagu tersedia/, /^sisa$/, /remaining/]);
     const bidangCol = findColumn(headers, [/bidang/, /unit kerja/, /nama satker/, /^satker$/, /unit organisasi/]);
     if (codeCol < 0) throw new Error("Kolom kode akun tidak terdeteksi. Pastikan file memiliki header Kode Akun/Akun/Kode.");
-    if (paguCol < 0 && realCol < 0 && lockCol < 0) throw new Error("Kolom Pagu, Realisasi, atau Blokir tidak terdeteksi pada header file.");
+    if (paguCol < 0 && realCol < 0 && lockCol < 0 && remainingCol < 0) throw new Error("Kolom Pagu, Realisasi, Blokir/Lock, atau Sisa Anggaran tidak terdeteksi pada header file.");
     const savedValues = {};
     let updated = 0;
     const byCode = {};
@@ -2159,22 +2202,39 @@ function withAuto(note) {
         if (paguCol >= 0) { const n = parseNumber(row[paguCol]); if (n !== null) values.pagu = n; }
         if (realCol >= 0) { const n = parseNumber(row[realCol]); if (n !== null) values.real = n; }
         if (lockCol >= 0) { const n = parseNumber(row[lockCol]); if (n !== null) values.lock = n; }
+        if (remainingCol >= 0) { const n = parseNumber(row[remainingCol]); if (n !== null) values.faRemaining = n; }
         if (!Object.keys(values).length) continue;
         savedValues[node.path] = { ...(savedValues[node.path] || {}), ...values };
         if (values.pagu !== undefined) node.pagu = values.pagu;
         if (values.real !== undefined) node.real = values.real;
         if (values.lock !== undefined) node.lock = values.lock;
+        if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
+        node.faImported = true;
         updated++;
       }
     }
     if (!updated) throw new Error("Tidak ada akun yang cocok dengan data anggaran aplikasi. Periksa format FA Detail, kode akun, dan nama kolomnya.");
-    // Setiap impor menggantikan snapshot sebelumnya agar data lama tidak tertinggal.
+    // Snapshot baru menggantikan impor sebelumnya; bersihkan penanda lama agar akun
+    // yang tidak ada di file baru kembali memakai data dasar, bukan saldo impor usang.
+    Object.values(NODES).forEach(node => {
+      delete node.faImported;
+      delete node.faRemaining;
+    });
+    Object.entries(savedValues).forEach(([path, values]) => {
+      const node = NODES[path];
+      if (!node) return;
+      node.faImported = true;
+      if (values.pagu !== undefined) node.pagu = values.pagu;
+      if (values.real !== undefined) node.real = values.real;
+      if (values.lock !== undefined) node.lock = values.lock;
+      if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
+    });
     const record = { importedAt: new Date().toISOString(), fileName, values: savedValues, updatedRows: updated };
     try { localStorage.setItem("snd_fa_detail", JSON.stringify(record)); }
     catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
     renderMon();
     renderAdminTools();
-    $("faImportMessage").textContent = `Berhasil memproses ${updated} baris akun. Monitoring diperbarui pada browser ini.`;
+    $("faImportMessage").textContent = `Berhasil memproses ${updated} baris akun. Pagu/realisasi/lock dan kolom sisa anggaran yang tersedia telah diterapkan ke monitoring pada browser ini. Periksa label kolom sisa pada file bila saldo masih tidak sesuai.`;
   }
 
   $("faDetailFile").addEventListener("change", async event => {
