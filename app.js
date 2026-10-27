@@ -2089,24 +2089,26 @@ function withAuto(note) {
         .map(v => String(v ?? "").replace(/\s+/g, " ").trim())
         .filter(Boolean);
       const line = cells.join(" ").replace(/\s+/g, " ").trim();
-      // Kode kegiatan/output/suboutput/komponen, akun 6 digit, dan item 6 digit.
-      const head = line.match(/^\s*([A-Z]{2,5}(?:\.[A-Z0-9]{2,4})*|\d{3}(?:\.[A-Z0-9]+)?|\d{6})\s+(.+)$/i);
-      if (!head) continue;
-      const code = head[1].toUpperCase();
-      const rest = head[2];
 
-      // Angka di laporan FA Detail berada di akhir baris. Tangkap token angka,
-      // termasuk angka yang terpecah oleh spasi pemisah kolom pada PDF.
-      const matches = [...rest.matchAll(/-?\d[\d,.]*/g)];
+      // Cari kode di awal baris maupun di sel pertama. Beberapa PDF memecah
+      // kode dan uraian ke sel terpisah; jangan mensyaratkan satu format teks.
+      const codeMatch = line.match(/^\s*([A-Z]{2,5}(?:\.[A-Z0-9]{2,4})*|\d{3}(?:\.[A-Z0-9]+)?|\d{6})\b/i);
+      if (!codeMatch) continue;
+      const code = codeMatch[1].toUpperCase();
+      const rest = line.slice(codeMatch[0].length).trim();
+
+      // Ekstrak token angka dengan pemisah ribuan Indonesia atau format angka
+      // yang sudah dipisahkan antar-sel oleh PDF.js.
+      const matches = [...rest.matchAll(/-?\d[\d.,]*(?:\s+\d{3})*/g)];
       if (matches.length < 5) continue;
       const firstNumberIndex = matches[0].index;
       const description = rest.slice(0, firstNumberIndex).trim().replace(/[|:–-]+$/, "").trim();
       if (!description) continue;
 
-      const numericTokens = matches.map(m => m[0]);
+      const numericTokens = matches.map(m => m[0].replace(/\s+/g, ""));
       const numbers = numericTokens.map(toAmount).filter(n => n !== null && Number.isFinite(n));
-      // Kolom yang diharapkan: pagu, lock, lalu, ini, kumulatif, persen, sisa.
-      // Bila % dicetak terpisah dari angkanya, gunakan 7 angka terakhir.
+      // Kolom laporan: pagu revisi, lock pagu, periode lalu, periode ini,
+      // realisasi s.d. periode, persen, sisa anggaran. Persentase bukan saldo.
       if (numbers.length < 5) continue;
       let pagu, lock, real, remaining = null;
       if (numbers.length >= 7) {
@@ -2184,7 +2186,13 @@ function withAuto(note) {
         return;
       }
     }
-    // FA Detail kadang memiliki beberapa baris judul; cari baris header yang paling mungkin.
+    // Jangan meneruskan PDF FA Detail ke parser header Excel/Word jika baris
+    // FA Detail tidak berhasil dikenali. Tampilkan diagnosis yang relevan.
+    if (/\.pdf$/i.test(String(fileName || ""))) {
+      throw new Error("PDF berhasil dibaca, tetapi baris FA Detail tidak berhasil dikenali. Pastikan teks PDF dapat dipilih. Parser belum menemukan baris dengan kode di awal baris dan minimal 5 kolom angka; tidak ada data Monitoring yang diubah.");
+    }
+
+    // FA Detail Excel/Word dapat memiliki beberapa baris judul; cari header yang paling mungkin.
     let headerIndex = 0, bestScore = -1;
     for (let i = 0; i < Math.min(rows.length, 30); i++) {
       const headers = rows[i].map(normHeader);
