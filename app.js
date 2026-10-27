@@ -2068,29 +2068,61 @@ function withAuto(note) {
   function importRows(rows, fileName) {
     if (!Array.isArray(rows) || rows.length < 2) throw new Error("File tidak memiliki baris data yang cukup.");
 
-    // Format khusus PDF FA Detail: impor kode kegiatan (mis. BAA.001)
-    // dan kode akun 6 digit. Monitoring pada tingkat kegiatan harus mengikuti
-    // angka s.d. Periode yang tercantum langsung pada baris kegiatan FA Detail.
+    // FA Detail PDF memiliki urutan kolom tetap:
+    // Kode | Uraian | Pagu Revisi | Lock Pagu | Periode Lalu |
+    // Periode Ini | s.d. Periode | % | Sisa Anggaran.
+    // Baca angka dari ujung kanan baris agar kolom uraian/kode tidak
+    // membuat indeks angka bergeser. Persentase dikeluarkan dari saldo.
     const faRows = [];
+    const numberToken = /-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?/g;
+    const toAmount = value => {
+      const s = String(value ?? "").trim().replace(/\s/g, "");
+      if (!s) return null;
+      if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(s)) return Number(s.replace(/\./g, "").replace(",", "."));
+      if (/^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(s)) return Number(s.replace(/,/g, ""));
+      if (/^-?\d+(?:,\d+)?$/.test(s)) return Number(s.replace(",", "."));
+      return parseNumber(s);
+    };
+
     for (const row of rows) {
-      const cells = (Array.isArray(row) ? row : [row]).map(v => String(v ?? "").trim()).filter(Boolean);
+      const cells = (Array.isArray(row) ? row : [row])
+        .map(v => String(v ?? "").replace(/\s+/g, " ").trim())
+        .filter(Boolean);
       const line = cells.join(" ").replace(/\s+/g, " ").trim();
-      // Dukungan kode seperti BAA.001, 051, 051.0A, dan 521211.
-      const match = line.match(/^\s*([A-Z]{2,5}\.\d{3}|\d{3}(?:\.[A-Z0-9]+)?|\d{6})\s+(.+?)\s+(?=-?\d[\d,.]*(?:\s|$))/i);
-      if (!match) continue;
-      const code = match[1].toUpperCase();
-      // Kode rincian 000017, 000018, dst. adalah baris data yang sah dan
-      // harus ikut dipetakan ke node yang sama di data.js.
-      const afterDescription = line.slice(match[0].length).trim();
-      const tokens = afterDescription.match(/-?\d[\d,]*(?:\.\d+)?/g) || [];
-      const numbers = tokens.map(parseNumber).filter(n => n !== null && Number.isFinite(n));
-      // Pagu Revisi, Lock Pagu, Periode Lalu, Periode Ini, s.d. Periode, %, Sisa.
-      // Minimal kolom numerik: pagu, lock, periode lalu, periode ini,
-      // s.d. periode. Persentase (mis. 55.38) bukan saldo; sisa hanya
-      // diambil jika ada setidaknya 7 nilai numerik pada baris.
+      // Kode kegiatan/output/suboutput/komponen, akun 6 digit, dan item 6 digit.
+      const head = line.match(/^\s*([A-Z]{2,5}(?:\.[A-Z0-9]{2,4})*|\d{3}(?:\.[A-Z0-9]+)?|\d{6})\s+(.+)$/i);
+      if (!head) continue;
+      const code = head[1].toUpperCase();
+      const rest = head[2];
+
+      // Angka di laporan FA Detail berada di akhir baris. Tangkap token angka,
+      // termasuk angka yang terpecah oleh spasi pemisah kolom pada PDF.
+      const matches = [...rest.matchAll(/-?\d[\d,.]*/g)];
+      if (matches.length < 5) continue;
+      const firstNumberIndex = matches[0].index;
+      const description = rest.slice(0, firstNumberIndex).trim().replace(/[|:–-]+$/, "").trim();
+      if (!description) continue;
+
+      const numericTokens = matches.map(m => m[0]);
+      const numbers = numericTokens.map(toAmount).filter(n => n !== null && Number.isFinite(n));
+      // Kolom yang diharapkan: pagu, lock, lalu, ini, kumulatif, persen, sisa.
+      // Bila % dicetak terpisah dari angkanya, gunakan 7 angka terakhir.
       if (numbers.length < 5) continue;
-      const remaining = numbers.length >= 7 ? numbers[numbers.length - 1] : null;
-      faRows.push({ code, description: match[2].trim(), pagu: numbers[0], lock: numbers[1], real: numbers[4], remaining });
+      let pagu, lock, real, remaining = null;
+      if (numbers.length >= 7) {
+        pagu = numbers[0];
+        lock = numbers[1];
+        real = numbers[4];
+        remaining = numbers[numbers.length - 1];
+      } else {
+        // Format yang tidak memiliki kolom persen/sisa lengkap tetap diimpor,
+        // tetapi saldo akan dihitung dari pagu - lock - realisasi.
+        pagu = numbers[0];
+        lock = numbers[1];
+        real = numbers[4];
+      }
+      // Abaikan baris judul/total yang bukan node yang dikenali saat pemetaan.
+      faRows.push({ code, description, pagu, lock, real, remaining });
     }
 
     if (faRows.length) {
@@ -2148,7 +2180,7 @@ function withAuto(note) {
         catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
         renderMon();
         renderAdminTools();
-        $("faImportMessage").textContent = `Impor FA Detail selesai: ${updated} baris berhasil dipetakan.${unmatched ? ` ${unmatched} baris tidak cocok dengan kode pada data.js.` : ""}${skipped ? ` ${skipped} baris berkode ganda dilewati agar tidak salah akun.` : ""} Sisa Monitoring memakai kolom SISA ANGGARAN pada baris yang cocok; jika kolom sisa tidak terbaca, aplikasi menghitung pagu − lock − realisasi. Data tersimpan pada browser ini.`;
+        $("faImportMessage").textContent = `Impor FA Detail selesai: ${updated} baris berhasil dipetakan dari ${faRows.length} baris yang terbaca.${unmatched ? ` ${unmatched} baris tidak cocok dengan kode pada data.js.` : ""}${skipped ? ` ${skipped} baris berkode ganda dilewati agar tidak salah akun.` : ""} Monitoring diperbarui dari kolom Pagu Revisi, Lock Pagu, s.d. Periode, dan Sisa Anggaran. Data tersimpan pada browser/perangkat ini.`;
         return;
       }
     }
