@@ -2037,10 +2037,19 @@ function withAuto(note) {
         width: item.width || 0
       }));
       // Gabungkan teks yang berada pada garis horizontal sama, lalu pisahkan kolom berdasarkan jarak posisi.
-      items.sort((a,b) => Math.abs(b.y-a.y) > 2 ? b.y-a.y : a.x-b.x);
+      items.sort((a,b) => (b.y - a.y) || (a.x - b.x));
       const lines = [];
       for (const item of items) {
-        let line = lines.find(row => Math.abs(row.y - item.y) <= 2);
+        // Pilih baseline terdekat agar teks dari dua baris PDF tidak tercampur.
+        let line = null;
+        let bestDistance = Infinity;
+        for (const candidate of lines) {
+          const distance = Math.abs(candidate.y - item.y);
+          if (distance <= 2 && distance < bestDistance) {
+            line = candidate;
+            bestDistance = distance;
+          }
+        }
         if (!line) { line = { y: item.y, items: [] }; lines.push(line); }
         line.items.push(item);
       }
@@ -2324,4 +2333,34 @@ function withAuto(note) {
   if (isAdmin()) navButton.hidden = false;
   renderAdminToolsIfAdmin();
   function renderAdminToolsIfAdmin() { if (isAdmin()) renderAdminTools(); }
+})();
+
+/* =========================================================
+   HILANGKAN KETERANGAN AKUN DEFAULT PADA HALAMAN LOGIN
+   Menghapus hanya elemen yang memuat teks pengumuman akun awal.
+   Tidak mengubah proses login atau kredensial akun.
+   ========================================================= */
+(function removeDefaultLoginNotice() {
+  const noticeText = "Akun awal Admin:";
+  const removeNotice = () => {
+    const candidates = document.querySelectorAll("p, small, div, span, footer, label");
+    candidates.forEach(element => {
+      if (!element || !element.textContent) return;
+      if (!element.textContent.includes(noticeText)) return;
+
+      // Pilih elemen terkecil yang memuat teks agar bagian login lain tetap ada.
+      const hasSmallerMatch = Array.from(element.children).some(child =>
+        child.textContent && child.textContent.includes(noticeText)
+      );
+      if (hasSmallerMatch) return;
+
+      element.remove();
+    });
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", removeNotice, { once: true });
+  } else {
+    removeNotice();
+  }
 })();
