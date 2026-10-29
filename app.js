@@ -161,7 +161,6 @@ const save = () => {
 // Terapkan data FA Detail terakhir yang diimpor Admin pada browser ini.
 function applySavedFAData() {
   try {
-    Object.values(NODES).forEach(node => { delete node.faImported; delete node.faRemaining; });
     const saved = JSON.parse(localStorage.getItem("snd_fa_detail") || "null");
     if (!saved || !saved.values) return;
     Object.entries(saved.values).forEach(([path, values]) => {
@@ -170,8 +169,6 @@ function applySavedFAData() {
       if (Number.isFinite(Number(values.pagu))) node.pagu = Number(values.pagu);
       if (Number.isFinite(Number(values.real))) node.real = Number(values.real);
       if (Number.isFinite(Number(values.lock))) node.lock = Number(values.lock);
-      if (values.faRemaining !== undefined && values.faRemaining !== null && values.faRemaining !== "" && Number.isFinite(Number(values.faRemaining))) node.faRemaining = Number(values.faRemaining);
-      node.faImported = true;
     });
   } catch (e) {
     console.warn("Data FA Detail tersimpan tidak dapat diterapkan.", e);
@@ -193,39 +190,8 @@ const used = node => notas
   )
   .reduce((sum, n) => sum + (Number(n.minta) || 0), 0);
 
-// Jika baris akun memiliki sisa resmi dari FA Detail, tampilkan angka itu
-// secara langsung. Jangan mengurangi lagi dengan nilai Nota Dinas karena
-// angka sisa FA Detail sudah merupakan saldo pada periode laporan tersebut.
-// Untuk node yang tidak tercakup dalam impor FA Detail, gunakan perhitungan
-// dari data.js dan Nota Dinas seperti sebelumnya.
-// Tandai baris yang benar-benar berasal dari snapshot FA Detail.
-// Nilai induk dihitung dari anak jika saldo induk tidak diimpor langsung.
-const hasImportedFA = node => !!node && (
-  node.faImported === true || (node.kids || []).some(hasImportedFA)
-);
-
-const effectivePagu = node => {
-  if (!node) return 0;
-  if (node.faImported === true) return Number(node.pagu) || 0;
-  if ((node.kids || []).some(hasImportedFA)) {
-    return node.kids.reduce((sum, child) => sum + effectivePagu(child), 0);
-  }
-  return Number(node.pagu) || 0;
-};
-
-const sisa = node => {
-  if (!node) return 0;
-  const faRemaining = node.faRemaining;
-  if (node.faImported === true && faRemaining !== null && faRemaining !== undefined && faRemaining !== "" && Number.isFinite(Number(faRemaining))) {
-    return Number(faRemaining);
-  }
-  // Jika impor hanya berisi akun rincian, jumlahkan saldo rincian tersebut
-  // sehingga ringkasan bidang dan akun induk ikut berubah.
-  if ((node.kids || []).some(hasImportedFA)) {
-    return node.kids.reduce((sum, child) => sum + sisa(child), 0);
-  }
-  return Number(node.pagu || 0) - Number(node.lock || 0) - Number(node.real || 0) - used(node);
-};
+const sisa = node =>
+  node.pagu - node.lock - node.real - used(node);
 
 const cls = value => value < 0 ? "neg" : "pos";
 
@@ -367,34 +333,10 @@ $("loginForm").onsubmit = event => {
 
   const username = $("u").value.trim().toLowerCase();
   const password = $("p").value;
-  let account = Object.values(ACCOUNTS).find(a => a.username.toLowerCase() === username);
+  const account = Object.values(ACCOUNTS).find(a => a.username.toLowerCase() === username);
 
-  /*
-   * PEMULIHAN AKSES ADMIN:
-   * Jika kredensial Admin tersimpan di browser berbeda dari akun bawaan,
-   * izinkan login pemulihan menggunakan admin / Admin#2026. Hanya kredensial
-   * Admin yang dipulihkan; akun bidang, riwayat Nota Dinas, dan FA Detail
-   * tidak dihapus atau diubah.
-   */
-  const adminAccount = ACCOUNTS.admin;
-  const isAdminRecovery = username === "admin" && password === "Admin#2026";
-
-  if (isAdminRecovery && adminAccount) {
-    adminAccount.username = "admin";
-    adminAccount.password = "Admin#2026";
-    adminAccount.role = "admin";
-    account = adminAccount;
-
-    try {
-      const saved = JSON.parse(localStorage.getItem("snd_accounts") || "{}");
-      const preserved = saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
-      preserved.admin = { username: "admin", password: "Admin#2026" };
-      localStorage.setItem("snd_accounts", JSON.stringify(preserved));
-    } catch (e) {
-      console.warn("Kredensial Admin dipulihkan untuk sesi ini, tetapi tidak dapat disimpan.", e);
-    }
-  } else if (!account || account.password !== password) {
-    $("err").textContent = "Username atau password salah. Untuk pemulihan Admin, gunakan username admin dan password Admin#2026.";
+  if (!account || account.password !== password) {
+    $("err").textContent = "Username atau password salah.";
     return;
   }
 
@@ -447,7 +389,7 @@ function renderMon() {
 
   $("cards").innerHTML = keys.map(bidang => {
     const roots = TREE[bidang] || [];
-    const pagu = roots.reduce((sum, node) => sum + effectivePagu(node), 0);
+    const pagu = roots.reduce((sum, node) => sum + node.pagu, 0);
     const remaining = roots.reduce((sum, node) => sum + sisa(node), 0);
 
     return `
@@ -1428,11 +1370,14 @@ async function word(note) {
   const h = String(note.hal || "").toLowerCase();
   const L = A.LEFT, R = A.RIGHT, M = A.CENTER;
 
+  const isPokWord = /revisi\s*pok/i.test(note.jenisNodin || "");
+  const isPencairanWord = /pencairan/i.test(note.jenisNodin || "");
+  const halLabelWord = isPencairanWord ? "Perihal" : "Hal";
+  const bidangNamaWord = BIDANG[note.bidang] || note.bidang || "-";
   const info = [
-    ["Jenis Nota Dinas", note.jenisNodin || "-"],
-    ["Yth", note.yth],
-    ["Dari", note.dari],
-    ["Hal", note.hal],
+    ["Yth", note.yth || "-"],
+    ["Dari", note.dari || "-"],
+    [halLabelWord, note.hal || "-"],
     ["Lampiran", note.lampiran || "-"],
     ["Tanggal", fd(note.tanggal)]
   ];
@@ -1451,10 +1396,12 @@ async function word(note) {
     });
   }));
 
-  const widths = [2800, 1700, 1700, 1700, 1700];
+  // Enam kolom sesuai contoh Nota Dinas Revisi POK.
+  const widths = [1100, 2600, 1400, 1400, 1550, 1550];
 
   const headers = [
     "Kode Akun",
+    "Uraian Kegiatan",
     "Total Pagu Anggaran",
     "Anggaran yang Diminta",
     "Sisa Anggaran Sebelum Pengajuan",
@@ -1473,13 +1420,14 @@ async function word(note) {
     }),
     new TableRow({
       children: [
-        note.kode + " – " + note.uraian + (note.item ? " (" + note.item + ")" : ""),
+        note.kode || "-",
+        [note.uraian || "-", note.item || "", note.kep || ""].filter(Boolean).join("\n"),
         rp(note.pagu),
         rp(note.minta),
         rp(note.sebelum),
         rp(note.sesudah)
       ].map((text, index) =>
-        C([P(text, { al: index ? R : L, after: 0 })], widths[index], {
+        C([P(text, { al: index === 0 ? M : index === 1 ? L : R, after: 0 })], widths[index], {
           br: borders
         })
       )
@@ -1571,6 +1519,17 @@ async function word(note) {
   }
 
   const indent = { firstLine: 567 };
+  const subjectWord = String(note.hal || note.kep || "kebutuhan operasional").trim();
+  const introWord1 = isPokWord
+    ? `Dalam rangka mendukung kelancaran pelaksanaan tugas dan fungsi di ${bidangNamaWord} serta menyesuaikan pelaksanaan kegiatan dengan kebutuhan operasional, dipandang perlu dilakukan revisi terhadap Petunjuk Operasional Kegiatan (POK) Tahun Anggaran 2026 pada ${bidangNamaWord}.`
+    : isPencairanWord
+      ? `Dalam rangka mendukung pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini kami sampaikan permohonan pencairan anggaran untuk ${subjectWord}.`
+      : `Dalam rangka mendukung kelancaran pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini disampaikan nota dinas mengenai ${subjectWord}.`;
+  const introWord2 = isPokWord
+    ? `Sehubungan dengan hal tersebut, mohon kiranya dapat memberikan persetujuan atas usulan revisi POK dimaksud untuk selanjutnya diproses sesuai dengan ketentuan dan mekanisme pengelolaan anggaran yang berlaku. Rincian anggaran sebagai berikut:`
+    : isPencairanWord
+      ? `Sehubungan dengan hal tersebut, biaya dimaksud dibebankan pada DIPA Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat Tahun Anggaran berjalan dengan memperhatikan ketersediaan pagu dan ketentuan yang berlaku. Rincian anggaran sebagai berikut:`
+      : `Sehubungan dengan hal tersebut, mohon kiranya hal dimaksud dapat ditindaklanjuti sesuai kebutuhan dan ketentuan yang berlaku. Rincian anggaran sebagai berikut:`;
 
   const wordDocument = new Document({
     sections: [{
@@ -1586,20 +1545,13 @@ async function word(note) {
       },
       children: [
         P("KEMENTERIAN IMIGRASI DAN PEMASYARAKATAN RI", { al: M, after: 0 }),
-        P("DIREKTORAT JENDERAL IMIGRASI", { al: M, after: 0 }),
         P("KANTOR IMIGRASI KELAS I KHUSUS NON TPI JAKARTA BARAT", { al: M, after: 240 }),
         P("NOTA DINAS", { al: M, b: true, after: 60 }),
         P("Nomor : " + note.nomor, { al: M, after: 240 }),
         infoTable,
         P("", { after: 120 }),
-        P(
-          `Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi serta kegiatan operasional perkantoran pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, diperlukan pemenuhan ${h} untuk mendukung ${note.kep}.`,
-          { ind: indent }
-        ),
-        P(
-          `Sehubungan dengan hal tersebut, ${h} dimaksud direncanakan menggunakan anggaran pada ${BIDANG[note.bidang]} dengan Kode Akun ${note.kode} – ${note.uraian}${note.item ? " (" + note.item + ")" : ""}, dengan memperhatikan ketersediaan anggaran serta ketentuan dan peruntukan anggaran yang berlaku. Rincian anggaran sebagai berikut:`,
-          { ind: indent }
-        ),
+        P(introWord1, { ind: indent }),
+        P(introWord2, { ind: indent }),
         anggaranTable,
         P("", { after: 120 }),
         P(
@@ -1861,18 +1813,7 @@ function withAuto(note) {
       </form>
       <hr style="margin:26px 0;">
       <h2>Impor Data FA Detail Harian</h2>
-      <div class="fa-upload-guide" style="line-height:1.65;margin:12px 0 16px;">
-        <p><strong>Upload FA Detail Anggaran</strong></p>
-        <p>Admin dapat mengunggah laporan FA Detail setiap pagi sebelum aplikasi digunakan. Format file yang didukung: Excel (.xlsx/.xls), Word (.docx), atau PDF (.pdf).</p>
-        <p><strong>Ketentuan file:</strong></p>
-        <ul style="padding-left:22px;">
-          <li><strong>Excel:</strong> disarankan memiliki kolom kode akun, uraian, pagu, realisasi, dan/atau blokir.</li>
-          <li><strong>Word/PDF:</strong> sistem dapat membaca kode akun yang tercantum di awal baris maupun pada kolom kode akun, dengan syarat teks dapat dipilih dan struktur tabel terbaca dengan jelas.</li>
-          <li>Untuk laporan FA Detail, sistem menggunakan data <strong>Pagu Revisi</strong>, <strong>Realisasi s.d. Periode</strong>, dan <strong>Lock Pagu</strong> apabila tersedia.</li>
-          <li>Baris rincian kegiatan dan subtotal harus dibedakan dari baris kode akun agar tidak terjadi kesalahan pembacaan.</li>
-        </ul>
-        <p>Setelah impor berhasil, admin perlu memeriksa hasil pembacaan sebelum data digunakan untuk monitoring anggaran.</p>
-      </div>
+      <p>Admin dapat mengunggah FA Detail setiap pagi sebelum aplikasi digunakan dalam format Excel (.xlsx/.xls), Word (.docx), atau PDF (.pdf). File harus memuat tabel dengan kolom kode akun serta pagu, realisasi, atau blokir. File Word/PDF paling baik dibaca jika teksnya dapat dipilih dan tabelnya tersusun rapi.</p>
       <p><strong>Penting:</strong> pada versi GitHub Pages statis ini, file yang diunggah hanya tersimpan di browser/perangkat tempat Admin mengunggah. Data impor hanya tersimpan di browser/perangkat Admin dan belum otomatis tersinkron ke perangkat lain.</p>
       <label>File FA Detail (Excel, Word, atau PDF)
         <input id="faDetailFile" type="file" accept=".xlsx,.xls,.docx,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf" style="display:block;width:100%;padding:10px;margin-top:8px;">
@@ -1965,31 +1906,24 @@ function withAuto(note) {
     return headers.findIndex(h => patterns.some(pattern => pattern.test(normHeader(h))));
   }
   function loadScript(src, readyCheck, label) {
-    // Jangan memuat pustaka yang sama lebih dari sekali.
     if (readyCheck()) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const existing = document.querySelector(`script[data-snd-lib="${label}"]`);
-      const fail = () => reject(new Error(`Pustaka ${label} gagal dimuat. Periksa koneksi internet atau pemblokiran CDN, lalu muat ulang halaman.`));
-      const verify = () => {
-        if (readyCheck()) resolve();
-        else reject(new Error(`Pustaka ${label} selesai diunduh tetapi tidak tersedia. Periksa koneksi internet atau pemblokiran CDN, lalu muat ulang halaman.`));
-      };
       if (existing) {
         if (readyCheck()) { resolve(); return; }
-        if (existing.dataset.sndLoaded === "true") { verify(); return; }
-        existing.addEventListener("load", verify, { once: true });
-        existing.addEventListener("error", fail, { once: true });
+        const onLoad = () => {
+          if (readyCheck()) resolve();
+          else reject(new Error(`Pustaka ${label} selesai dimuat tetapi tidak tersedia.`));
+        };
+        existing.addEventListener("load", onLoad, { once: true });
+        existing.addEventListener("error", () => reject(new Error(`Pustaka ${label} gagal dimuat. Periksa koneksi internet.`)), { once: true });
         return;
       }
       const script = document.createElement("script");
       script.dataset.sndLib = label;
       script.src = src;
-      script.async = true;
-      script.onload = () => {
-        script.dataset.sndLoaded = "true";
-        verify();
-      };
-      script.onerror = fail;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error(`Pustaka ${label} gagal dimuat. Periksa koneksi internet atau gunakan format Excel, Word, atau PDF.`));
       document.head.appendChild(script);
     });
   }
@@ -2037,19 +1971,10 @@ function withAuto(note) {
         width: item.width || 0
       }));
       // Gabungkan teks yang berada pada garis horizontal sama, lalu pisahkan kolom berdasarkan jarak posisi.
-      items.sort((a,b) => (b.y - a.y) || (a.x - b.x));
+      items.sort((a,b) => Math.abs(b.y-a.y) > 2 ? b.y-a.y : a.x-b.x);
       const lines = [];
       for (const item of items) {
-        // Pilih baseline terdekat agar teks dari dua baris PDF tidak tercampur.
-        let line = null;
-        let bestDistance = Infinity;
-        for (const candidate of lines) {
-          const distance = Math.abs(candidate.y - item.y);
-          if (distance <= 2 && distance < bestDistance) {
-            line = candidate;
-            bestDistance = distance;
-          }
-        }
+        let line = lines.find(row => Math.abs(row.y - item.y) <= 2);
         if (!line) { line = { y: item.y, items: [] }; lines.push(line); }
         line.items.push(item);
       }
@@ -2076,132 +2001,7 @@ function withAuto(note) {
   }
   function importRows(rows, fileName) {
     if (!Array.isArray(rows) || rows.length < 2) throw new Error("File tidak memiliki baris data yang cukup.");
-
-    // FA Detail PDF memiliki urutan kolom tetap:
-    // Kode | Uraian | Pagu Revisi | Lock Pagu | Periode Lalu |
-    // Periode Ini | s.d. Periode | % | Sisa Anggaran.
-    // Baca angka dari ujung kanan baris agar kolom uraian/kode tidak
-    // membuat indeks angka bergeser. Persentase dikeluarkan dari saldo.
-    const faRows = [];
-    const numberToken = /-?\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?/g;
-    const toAmount = value => {
-      const s = String(value ?? "").trim().replace(/\s/g, "");
-      if (!s) return null;
-      if (/^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(s)) return Number(s.replace(/\./g, "").replace(",", "."));
-      if (/^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(s)) return Number(s.replace(/,/g, ""));
-      if (/^-?\d+(?:,\d+)?$/.test(s)) return Number(s.replace(",", "."));
-      return parseNumber(s);
-    };
-
-    for (const row of rows) {
-      const cells = (Array.isArray(row) ? row : [row])
-        .map(v => String(v ?? "").replace(/\s+/g, " ").trim())
-        .filter(Boolean);
-      const line = cells.join(" ").replace(/\s+/g, " ").trim();
-
-      // Cari kode di awal baris maupun di sel pertama. Beberapa PDF memecah
-      // kode dan uraian ke sel terpisah; jangan mensyaratkan satu format teks.
-      const codeMatch = line.match(/^\s*([A-Z]{2,5}(?:\.[A-Z0-9]{2,4})*|\d{3}(?:\.[A-Z0-9]+)?|\d{6})\b/i);
-      if (!codeMatch) continue;
-      const code = codeMatch[1].toUpperCase();
-      const rest = line.slice(codeMatch[0].length).trim();
-
-      // Ekstrak token angka dengan pemisah ribuan Indonesia atau format angka
-      // yang sudah dipisahkan antar-sel oleh PDF.js.
-      const matches = [...rest.matchAll(/-?\d[\d.,]*(?:\s+\d{3})*/g)];
-      if (matches.length < 5) continue;
-      const firstNumberIndex = matches[0].index;
-      const description = rest.slice(0, firstNumberIndex).trim().replace(/[|:–-]+$/, "").trim();
-      if (!description) continue;
-
-      const numericTokens = matches.map(m => m[0].replace(/\s+/g, ""));
-      const numbers = numericTokens.map(toAmount).filter(n => n !== null && Number.isFinite(n));
-      // Kolom laporan: pagu revisi, lock pagu, periode lalu, periode ini,
-      // realisasi s.d. periode, persen, sisa anggaran. Persentase bukan saldo.
-      if (numbers.length < 5) continue;
-      let pagu, lock, real, remaining = null;
-      if (numbers.length >= 7) {
-        pagu = numbers[0];
-        lock = numbers[1];
-        real = numbers[4];
-        remaining = numbers[numbers.length - 1];
-      } else {
-        // Format yang tidak memiliki kolom persen/sisa lengkap tetap diimpor,
-        // tetapi saldo akan dihitung dari pagu - lock - realisasi.
-        pagu = numbers[0];
-        lock = numbers[1];
-        real = numbers[4];
-      }
-      // Abaikan baris judul/total yang bukan node yang dikenali saat pemetaan.
-      faRows.push({ code, description, pagu, lock, real, remaining });
-    }
-
-    if (faRows.length) {
-      const normalizeName = value => normHeader(value).replace(/\b(ri|di|dan|ke|yang)\b/g, " ").replace(/\s+/g, " ").trim();
-      const nodes = Object.values(NODES);
-      const savedValues = {};
-      let updated = 0;
-      let skipped = 0;
-      let unmatched = 0;
-      for (const item of faRows) {
-        let candidates = nodes.filter(node => String(node.code || "").toUpperCase() === item.code);
-        if (!candidates.length) { unmatched++; continue; }
-        // Bila kode berulang, cocokkan uraian terlebih dahulu. Jangan pernah
-        // menyalin satu baris FA ke beberapa node sekaligus.
-        const desc = normalizeName(item.description);
-        const exact = candidates.filter(node => normalizeName(node.name) === desc);
-        if (exact.length === 1) candidates = exact;
-        else if (candidates.length > 1) {
-          const partial = candidates.filter(node => {
-            const name = normalizeName(node.name);
-            return name && desc && (name.includes(desc) || desc.includes(name));
-          });
-          if (partial.length === 1) candidates = partial;
-          else { skipped++; continue; }
-        }
-        if (candidates.length !== 1) { skipped++; continue; }
-        const node = candidates[0];
-        const values = { pagu: item.pagu, lock: item.lock, real: item.real };
-        // Simpan sisa resmi FA Detail bila terdeteksi pada baris. Sisa ini
-        // dipakai untuk tampilan monitoring; pengajuan nota tetap dihitung terpisah.
-        if (item.remaining !== null && Number.isFinite(item.remaining)) values.faRemaining = item.remaining;
-        savedValues[node.path] = { ...(savedValues[node.path] || {}), ...values };
-        node.pagu = item.pagu;
-        node.lock = item.lock;
-        node.real = item.real;
-        if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
-        else delete node.faRemaining;
-        node.faImported = true;
-        updated++;
-      }
-      if (updated) {
-        // Terapkan snapshot baru secara konsisten dan lepaskan penanda impor lama.
-        Object.values(NODES).forEach(node => { delete node.faImported; delete node.faRemaining; });
-        Object.entries(savedValues).forEach(([path, values]) => {
-          const node = NODES[path];
-          if (!node) return;
-          node.faImported = true;
-          if (values.pagu !== undefined) node.pagu = values.pagu;
-          if (values.real !== undefined) node.real = values.real;
-          if (values.lock !== undefined) node.lock = values.lock;
-          if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
-        });
-        const record = { importedAt: new Date().toISOString(), fileName, values: savedValues, updatedRows: updated };
-        try { localStorage.setItem("snd_fa_detail", JSON.stringify(record)); }
-        catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
-        renderMon();
-        renderAdminTools();
-        $("faImportMessage").textContent = `Impor FA Detail selesai: ${updated} baris berhasil dipetakan dari ${faRows.length} baris yang terbaca.${unmatched ? ` ${unmatched} baris tidak cocok dengan kode pada data.js.` : ""}${skipped ? ` ${skipped} baris berkode ganda dilewati agar tidak salah akun.` : ""} Monitoring diperbarui dari kolom Pagu Revisi, Lock Pagu, s.d. Periode, dan Sisa Anggaran. Data tersimpan pada browser/perangkat ini.`;
-        return;
-      }
-    }
-    // Jangan meneruskan PDF FA Detail ke parser header Excel/Word jika baris
-    // FA Detail tidak berhasil dikenali. Tampilkan diagnosis yang relevan.
-    if (/\.pdf$/i.test(String(fileName || ""))) {
-      throw new Error("PDF berhasil dibaca, tetapi baris FA Detail tidak berhasil dikenali. Pastikan teks PDF dapat dipilih. Parser belum menemukan baris dengan kode di awal baris dan minimal 5 kolom angka; tidak ada data Monitoring yang diubah.");
-    }
-
-    // FA Detail Excel/Word dapat memiliki beberapa baris judul; cari header yang paling mungkin.
+    // FA Detail kadang memiliki beberapa baris judul; cari baris header yang paling mungkin.
     let headerIndex = 0, bestScore = -1;
     for (let i = 0; i < Math.min(rows.length, 30); i++) {
       const headers = rows[i].map(normHeader);
@@ -2224,12 +2024,11 @@ function withAuto(note) {
       /pagu.*(dipa|anggaran)?/, /jumlah pagu/, /total anggaran/,
       /pagu efektif/, /pagu awal/, /^anggaran$/, /jumlah dana/
     ]);
-    const realCol = findColumn(headers, [/realisasi.*s\.d\.?\s*periode/, /realisasi.*sampai.*periode/, /realisasi/, /realisasi.*anggaran/, /realisasi belanja/]);
-    const lockCol = findColumn(headers, [/lock pagu/, /pagu.*lock/, /blokir/, /diblokir/, /pagu.*blokir/, /cadangan/]);
-    const remainingCol = findColumn(headers, [/sisa.*pagu/, /sisa.*anggaran/, /sisa dana/, /saldo tersedia/, /pagu tersedia/, /^sisa$/, /remaining/]);
+    const realCol = findColumn(headers, [/realisasi/, /realisasi.*anggaran/, /realisasi belanja/]);
+    const lockCol = findColumn(headers, [/blokir/, /diblokir/, /pagu.*blokir/, /cadangan/]);
     const bidangCol = findColumn(headers, [/bidang/, /unit kerja/, /nama satker/, /^satker$/, /unit organisasi/]);
     if (codeCol < 0) throw new Error("Kolom kode akun tidak terdeteksi. Pastikan file memiliki header Kode Akun/Akun/Kode.");
-    if (paguCol < 0 && realCol < 0 && lockCol < 0 && remainingCol < 0) throw new Error("Kolom Pagu, Realisasi, Blokir/Lock, atau Sisa Anggaran tidak terdeteksi pada header file.");
+    if (paguCol < 0 && realCol < 0 && lockCol < 0) throw new Error("Kolom Pagu, Realisasi, atau Blokir tidak terdeteksi pada header file.");
     const savedValues = {};
     let updated = 0;
     const byCode = {};
@@ -2251,39 +2050,22 @@ function withAuto(note) {
         if (paguCol >= 0) { const n = parseNumber(row[paguCol]); if (n !== null) values.pagu = n; }
         if (realCol >= 0) { const n = parseNumber(row[realCol]); if (n !== null) values.real = n; }
         if (lockCol >= 0) { const n = parseNumber(row[lockCol]); if (n !== null) values.lock = n; }
-        if (remainingCol >= 0) { const n = parseNumber(row[remainingCol]); if (n !== null) values.faRemaining = n; }
         if (!Object.keys(values).length) continue;
         savedValues[node.path] = { ...(savedValues[node.path] || {}), ...values };
         if (values.pagu !== undefined) node.pagu = values.pagu;
         if (values.real !== undefined) node.real = values.real;
         if (values.lock !== undefined) node.lock = values.lock;
-        if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
-        node.faImported = true;
         updated++;
       }
     }
     if (!updated) throw new Error("Tidak ada akun yang cocok dengan data anggaran aplikasi. Periksa format FA Detail, kode akun, dan nama kolomnya.");
-    // Snapshot baru menggantikan impor sebelumnya; bersihkan penanda lama agar akun
-    // yang tidak ada di file baru kembali memakai data dasar, bukan saldo impor usang.
-    Object.values(NODES).forEach(node => {
-      delete node.faImported;
-      delete node.faRemaining;
-    });
-    Object.entries(savedValues).forEach(([path, values]) => {
-      const node = NODES[path];
-      if (!node) return;
-      node.faImported = true;
-      if (values.pagu !== undefined) node.pagu = values.pagu;
-      if (values.real !== undefined) node.real = values.real;
-      if (values.lock !== undefined) node.lock = values.lock;
-      if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
-    });
+    // Setiap impor menggantikan snapshot sebelumnya agar data lama tidak tertinggal.
     const record = { importedAt: new Date().toISOString(), fileName, values: savedValues, updatedRows: updated };
     try { localStorage.setItem("snd_fa_detail", JSON.stringify(record)); }
     catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
     renderMon();
     renderAdminTools();
-    $("faImportMessage").textContent = `Berhasil memproses ${updated} baris akun. Pagu/realisasi/lock dan kolom sisa anggaran yang tersedia telah diterapkan ke monitoring pada browser ini. Periksa label kolom sisa pada file bila saldo masih tidak sesuai.`;
+    $("faImportMessage").textContent = `Berhasil memproses ${updated} baris akun. Monitoring diperbarui pada browser ini.`;
   }
 
   $("faDetailFile").addEventListener("change", async event => {
@@ -2294,11 +2076,11 @@ function withAuto(note) {
     try {
       let rows;
       const name = file.name.toLowerCase();
-      if (name.endsWith(".docx")) {
+      if (name.endsWith(".docx") || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
         rows = await docxRows(file);
-      } else if (name.endsWith(".pdf")) {
+      } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
         rows = await pdfRows(file);
-      } else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      } else if (name.endsWith(".xlsx") || name.endsWith(".xls") || file.type.includes("spreadsheet") || file.type === "application/vnd.ms-excel") {
         await loadXlsx();
         const buffer = await file.arrayBuffer();
         const workbook = window.XLSX.read(buffer, { type: "array", cellDates: false });
@@ -2333,34 +2115,4 @@ function withAuto(note) {
   if (isAdmin()) navButton.hidden = false;
   renderAdminToolsIfAdmin();
   function renderAdminToolsIfAdmin() { if (isAdmin()) renderAdminTools(); }
-})();
-
-/* =========================================================
-   HILANGKAN KETERANGAN AKUN DEFAULT PADA HALAMAN LOGIN
-   Menghapus hanya elemen yang memuat teks pengumuman akun awal.
-   Tidak mengubah proses login atau kredensial akun.
-   ========================================================= */
-(function removeDefaultLoginNotice() {
-  const noticeText = "Akun awal Admin:";
-  const removeNotice = () => {
-    const candidates = document.querySelectorAll("p, small, div, span, footer, label");
-    candidates.forEach(element => {
-      if (!element || !element.textContent) return;
-      if (!element.textContent.includes(noticeText)) return;
-
-      // Pilih elemen terkecil yang memuat teks agar bagian login lain tetap ada.
-      const hasSmallerMatch = Array.from(element.children).some(child =>
-        child.textContent && child.textContent.includes(noticeText)
-      );
-      if (hasSmallerMatch) return;
-
-      element.remove();
-    });
-  };
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", removeNotice, { once: true });
-  } else {
-    removeNotice();
-  }
 })();
