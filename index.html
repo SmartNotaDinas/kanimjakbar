@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="id">
 <head>
@@ -29,8 +28,6 @@
 
       <button class="btn">Masuk</button>
       <p id="err" class="warn"></p>
-
-
     </form>
   </section>
 
@@ -131,10 +128,12 @@
           </label>
 
           <!--
-            Elemen YTH ini akan diubah oleh app.js
-            menjadi dropdown pilihan jamak.
-            Tidak tersedia kolom pengisian manual.
+            app.js akan menambahkan dropdown Jenis Nota Dinas
+            sebelum pilihan Bidang pada bagian atas formulir.
           -->
+
+          <!-- Yth diubah oleh app.js menjadi dropdown multi-pilih.
+               Pilihan manual tidak disediakan untuk bagian Yth. -->
           <label>
             Yth. (pilih satu atau beberapa tujuan)
             <input
@@ -145,9 +144,10 @@
             >
           </label>
 
+          <!-- Dari diubah oleh app.js menjadi dropdown pilihan kepala bidang/bagian. -->
           <label>
             Dari
-            <input id="dari" required>
+            <input id="dari" required autocomplete="off">
           </label>
 
           <label>
@@ -194,28 +194,22 @@
             <input id="ttd" required>
           </label>
 
-          <label>
-            Kode QR (opsional; kosongkan agar dibuat otomatis)
-            <input id="qr" type="file" accept="image/png,image/jpeg">
-          </label>
-
-          <label>
-            Blok tanda tangan (opsional; kosongkan agar dibuat otomatis)
-            <input id="sig" type="file" accept="image/png,image/jpeg">
-          </label>
-
-          <div class="imgs full">
-            <img id="qrp" alt="Pratinjau QR">
-            <img id="sigp" alt="Pratinjau tanda tangan">
-          </div>
-
+          <!-- Area tanda tangan tetap disediakan untuk penandatanganan manual. -->
           <label class="full">
             <span>
               <input id="blank" type="checkbox" style="width:auto">
-              Kosongkan area QR dan tanda tangan
-              (untuk penandatanganan manual)
+              Sediakan ruang tanda tangan untuk penandatanganan manual
             </span>
           </label>
+
+          <!-- Elemen tersembunyi untuk kompatibilitas dengan app.js lama.
+               Tidak ditampilkan sebagai fitur QR atau unggah tanda tangan. -->
+          <div hidden aria-hidden="true">
+            <input id="qr" type="file" accept="image/png,image/jpeg">
+            <input id="sig" type="file" accept="image/png,image/jpeg">
+            <img id="qrp" alt="">
+            <img id="sigp" alt="">
+          </div>
 
           <!-- RINGKASAN ANGGARAN -->
           <div class="calc full">
@@ -270,7 +264,9 @@
     </main>
   </div>
 
-  <!-- LIBRARY UNTUK PDF, QR CODE, DAN WORD -->
+  <!-- LIBRARY UNTUK PDF DAN WORD.
+       Library QR dipertahankan agar fungsi lama di app.js tidak menyebabkan error,
+       tetapi fitur QR tidak ditampilkan pada formulir maupun dokumen keluaran. -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
