@@ -928,12 +928,38 @@ $("hb").onchange = event => {
   his();
 };
 
+/* Logo resmi Kemenimipas untuk kop Nota Dinas.
+   Sumber resmi: https://kemenimipas.go.id/images/2026/logo/kemenimipas-logo.png
+   Jika jaringan/CDN memblokir gambar, dokumen tetap dibuat dengan kop teks. */
+const KEMENIMIPAS_LOGO_URL = "https://kemenimipas.go.id/images/2026/logo/kemenimipas-logo.png";
+let _sndLogoPromise = null;
+function getKemenimipasLogoData() {
+  if (_sndLogoPromise) return _sndLogoPromise;
+  _sndLogoPromise = new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 360; canvas.height = 360;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, 360, 360);
+        resolve(canvas.toDataURL("image/png"));
+      } catch (_) { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = KEMENIMIPAS_LOGO_URL;
+  });
+  return _sndLogoPromise;
+}
+
 /* =========================================================
    PDF NOTA DINAS
    ========================================================= */
 
-function pdf(note) {
+async function pdf(note) {
   note = withAuto(note);
+  const logoData = await getKemenimipasLogoData();
 
   const JsPDF = window.jspdf && window.jspdf.jsPDF;
   if (!JsPDF) {
@@ -987,19 +1013,25 @@ function pdf(note) {
     }
   };
 
-  // Kop surat dan judul mengikuti contoh Nota Dinas kantor.
-  doc.setFont("times", "bold");
+  // Kop surat: logo UPT di kiri, identitas kementerian dan kantor di tengah.
+  if (logoData) doc.addImage(logoData, "PNG", L, 7, 24, 24);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text("KEMENTERIAN IMIGRASI DAN PEMASYARAKATAN", W / 2 + 7, 13, { align: "center" });
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text("KEMENTERIAN IMIGRASI DAN PEMASYARAKATAN RI", W / 2, 15, { align: "center" });
-  doc.text("KANTOR IMIGRASI KELAS I KHUSUS NON TPI JAKARTA BARAT", W / 2, 21, { align: "center" });
+  doc.text("KANTOR IMIGRASI KELAS I KHUSUS NON TPI", W / 2 + 7, 19, { align: "center" });
+  doc.text("JAKARTA BARAT", W / 2 + 7, 24, { align: "center" });
   doc.setLineWidth(0.5);
-  doc.line(L, 25, R, 25);
+  doc.line(L, 32, R, 32);
 
+  doc.setFont("times", "bold");
   doc.setFontSize(12);
-  doc.text("NOTA DINAS", W / 2, 33, { align: "center" });
+  doc.text("NOTA DINAS", W / 2, 40, { align: "center" });
   doc.setFont("times", "normal");
   doc.setFontSize(10.5);
-  doc.text("Nomor : " + (note.nomor || "-"), W / 2, 39, { align: "center" });
+  doc.text("Nomor : " + (note.nomor || "-"), W / 2, 46, { align: "center" });
+  y = 55;
 
   // Metadata menggunakan tata letak label, titik dua, dan isi yang konsisten.
   const info = [
@@ -1029,26 +1061,15 @@ function pdf(note) {
   y += 6;
 
   if (isPok) {
-    addParagraph(
-      `Dalam rangka menunjang pelaksanaan tugas dan fungsi serta kegiatan operasional pada ${bidangNama}, bersama ini disampaikan usulan revisi Petunjuk Operasional Kegiatan (POK) Tahun Anggaran 2026.`
-    );
-    addParagraph(
-      `Sehubungan dengan hal tersebut, mohon kiranya usulan revisi POK dimaksud dapat ditelaah dan diberikan persetujuan sesuai dengan ketentuan yang berlaku. Rincian anggaran sebagai berikut:`
-    );
+    addParagraph(`Dalam rangka mendukung kelancaran pelaksanaan tugas dan fungsi di ${bidangNama} serta menyesuaikan pelaksanaan kegiatan dengan kebutuhan operasional, dipandang perlu dilakukan revisi terhadap Petunjuk Operasional Kegiatan (POK) Tahun Anggaran 2026 pada ${bidangNama}.`);
+    addParagraph("Sehubungan dengan hal tersebut, mohon kiranya dapat memberikan persetujuan atas usulan revisi POK dimaksud untuk selanjutnya diproses sesuai dengan ketentuan dan mekanisme pengelolaan anggaran yang berlaku.");
+    addParagraph("Rincian anggaran sebagai berikut:");
   } else if (isPencairan) {
-    addParagraph(
-      `Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini disampaikan permohonan pencairan anggaran untuk ${bodySubject}.`
-    );
-    addParagraph(
-      `Sehubungan dengan hal tersebut, biaya dimaksud dibebankan pada DIPA Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat Tahun Anggaran berjalan dengan memperhatikan ketersediaan pagu dan ketentuan yang berlaku. Rincian anggaran sebagai berikut:`
-    );
+    addParagraph(`Dalam rangka mendukung pengelolaan informasi dan pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini dengan hormat kami sampaikan Rencana Anggaran Belanja (RAB) berupa permohonan biaya ${bodySubject}.`);
+    addParagraph(`Adapun kebutuhan biaya dimaksud dibebankan pada Daftar Isian Pelaksanaan Anggaran (DIPA) Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat Tahun Anggaran 2026, dengan memperhatikan ketersediaan pagu anggaran serta ketentuan yang berlaku. Rincian anggaran sebagai berikut:`);
   } else {
-    addParagraph(
-      `Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi serta kegiatan operasional pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini disampaikan nota dinas mengenai ${bodySubject}.`
-    );
-    addParagraph(
-      `Sehubungan dengan hal tersebut, mohon kiranya hal dimaksud dapat ditindaklanjuti sesuai kebutuhan dan ketentuan yang berlaku. Rincian anggaran sebagai berikut:`
-    );
+    addParagraph(`Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini disampaikan nota dinas mengenai ${bodySubject}.`);
+    addParagraph("Sehubungan dengan hal tersebut, mohon kiranya hal dimaksud dapat ditindaklanjuti sesuai kebutuhan dan ketentuan yang berlaku.");
   }
 
   const account = NODES[note.path] || null;
@@ -1141,28 +1162,14 @@ function pdf(note) {
   doc.text(titleLines, signX, y, { maxWidth: signW });
   y += titleLines.length * 4.8 + 2;
 
-  if (note.blank) {
-    // Ruang kosong yang cukup untuk tanda tangan elektronik di kemudian hari.
-    y += signGap;
-  } else if (note.sig) {
-    const imgW = 35;
-    const imgH = Math.min(20, imgW * note.sig.h / note.sig.w);
-    doc.addImage(note.sig.d, fmt(note.sig.d), signX, y, imgW, imgH);
-    y += imgH + 2;
-    if (signName) {
-      doc.setFont("times", "bold");
-      doc.text(signName, signX, y);
-      doc.setFont("times", "normal");
-      y += 5;
-    }
-  } else {
-    y += signGap;
-    if (signName) {
-      doc.setFont("times", "bold");
-      doc.text(signName, signX, y);
-      doc.setFont("times", "normal");
-      y += 5;
-    }
+  // Ruang tanda tangan sengaja kosong untuk proses tanda tangan resmi BSrE.
+  // Tidak menggunakan QR/tanda tangan gambar dari aplikasi sebagai pengganti sertifikat.
+  y += Math.max(30, signGap);
+  if (signName) {
+    doc.setFont("times", "bold");
+    doc.text(signName, signX, y);
+    doc.setFont("times", "normal");
+    y += 5;
   }
 
   y += 5;
@@ -1372,7 +1379,7 @@ async function word(note) {
         const script = document.createElement("script");
         script.src = "https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js";
         script.dataset.sndDocx = "1";
-        script.onload = resolve;
+        script.onload = () => window.docx ? resolve() : reject(new Error("Pustaka Word selesai dimuat tetapi objek DOCX tidak tersedia."));
         script.onerror = () => reject(new Error("Pustaka Word gagal dimuat. Periksa koneksi internet lalu coba lagi."));
         document.head.appendChild(script);
       });
@@ -1437,6 +1444,14 @@ async function word(note) {
     ["Tanggal", fd(note.tanggal)]
   ];
 
+  const letterhead = T([1250, 8350], [new TableRow({ children: [
+    C(logoData ? [new Paragraph({ alignment: M, children: [new ImageRun({ data: u8(logoData), transformation: { width: 66, height: 66 } })] })] : [P("")], 1250),
+    C([
+      P("KEMENTERIAN IMIGRASI DAN PEMASYARAKATAN", { al: M, after: 0 }),
+      P("KANTOR IMIGRASI KELAS I KHUSUS NON TPI JAKARTA BARAT", { al: M, b: true, after: 0 })
+    ], 8350)
+  ] })]);
+
   const infoTable = T([1400, 300, 7900], info.map((row, index) => {
     const border = index === info.length - 1
       ? { ...noBorders, bottom: line }
@@ -1489,46 +1504,17 @@ async function word(note) {
     })
   ]);
 
-  const qrChildren = note.qr
-    ? [new Paragraph({
-        children: [
-          new ImageRun({
-            data: u8(note.qr.d),
-            transformation: { width: 105, height: 105 }
-          })
-        ]
-      })]
-    : [P("")];
-
-  const signChildren = [P(note.dari, { al: L, after: 60 })];
-
-  if (note.sig) {
-    signChildren.push(new Paragraph({
-      children: [
-        new ImageRun({
-          data: u8(note.sig.d),
-          transformation: {
-            width: 220,
-            height: Math.round(220 * note.sig.h / note.sig.w)
-          }
-        })
-      ]
-    }));
-  } else {
-    signChildren.push(P(""));
-
-    if (!note.blank) {
-      signChildren.push(P(""), P(note.ttd, { al: L, b: true }));
-    }
-  }
-
+  // Kolom tanda tangan resmi BSrE: area kosong, nama/jabatan tercetak.
+  const signChildren = [
+    P(note.dari || "", { al: M, after: 120 }),
+    P("", { al: M, after: 600 }),
+    P(note.ttd || "", { al: M, b: true, after: 0 })
+  ];
   const signatureTable = T([4800, 4800], [
-    new TableRow({
-      children: [
-        C(qrChildren, 4800),
-        C(signChildren, 4800)
-      ]
-    })
+    new TableRow({ children: [
+      C([P("")], 4800),
+      C(signChildren, 4800)
+    ] })
   ]);
 
   const items = parseRab(note.rab || "");
@@ -1588,41 +1574,30 @@ async function word(note) {
         }
       },
       children: [
-        P("KEMENTERIAN IMIGRASI DAN PEMASYARAKATAN RI", { al: M, after: 0 }),
-        P("DIREKTORAT JENDERAL IMIGRASI", { al: M, after: 0 }),
-        P("KANTOR IMIGRASI KELAS I KHUSUS NON TPI JAKARTA BARAT", { al: M, after: 240 }),
+        letterhead,
+        P("", { after: 120 }),
         P("NOTA DINAS", { al: M, b: true, after: 60 }),
         P("Nomor : " + note.nomor, { al: M, after: 240 }),
         infoTable,
         P("", { after: 120 }),
-        P(
-          `Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi serta kegiatan operasional perkantoran pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, diperlukan pemenuhan ${h} untuk mendukung ${note.kep}.`,
-          { ind: indent }
-        ),
-        P(
-          `Sehubungan dengan hal tersebut, ${h} dimaksud direncanakan menggunakan anggaran pada ${BIDANG[note.bidang]} dengan Kode Akun ${note.kode} – ${note.uraian}${note.item ? " (" + note.item + ")" : ""}, dengan memperhatikan ketersediaan anggaran serta ketentuan dan peruntukan anggaran yang berlaku. Rincian anggaran sebagai berikut:`,
-          { ind: indent }
-        ),
+        ...( /revisi\s*pok/i.test(note.jenisNodin || "") ? [
+          P(`Dalam rangka mendukung kelancaran pelaksanaan tugas dan fungsi di ${BIDANG[note.bidang] || note.bidang} serta menyesuaikan pelaksanaan kegiatan dengan kebutuhan operasional, dipandang perlu dilakukan revisi terhadap Petunjuk Operasional Kegiatan (POK) Tahun Anggaran 2026 pada ${BIDANG[note.bidang] || note.bidang}.`, { ind: indent }),
+          P("Sehubungan dengan hal tersebut, mohon kiranya dapat memberikan persetujuan atas usulan revisi POK dimaksud untuk selanjutnya diproses sesuai dengan ketentuan dan mekanisme pengelolaan anggaran yang berlaku.", { ind: indent }),
+          P("Rincian anggaran sebagai berikut:", { ind: indent })
+        ] : /pencairan/i.test(note.jenisNodin || "") ? [
+          P(`Dalam rangka mendukung pengelolaan informasi dan pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini dengan hormat kami sampaikan Rencana Anggaran Belanja (RAB) berupa permohonan biaya ${note.hal || note.kep || "kebutuhan operasional"}.`, { ind: indent }),
+          P("Adapun kebutuhan biaya dimaksud dibebankan pada Daftar Isian Pelaksanaan Anggaran (DIPA) Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat Tahun Anggaran 2026, dengan memperhatikan ketersediaan pagu anggaran serta ketentuan yang berlaku. Rincian anggaran sebagai berikut:", { ind: indent })
+        ] : [
+          P(`Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini disampaikan nota dinas mengenai ${note.hal || note.kep || "kebutuhan operasional"}.`, { ind: indent }),
+          P("Sehubungan dengan hal tersebut, mohon kiranya hal dimaksud dapat ditindaklanjuti sesuai kebutuhan dan ketentuan yang berlaku.", { ind: indent })
+        ]),
         anggaranTable,
         P("", { after: 120 }),
-        P(
-          `Berkenaan dengan hal tersebut, mohon kiranya Bapak Kepala Kantor dapat memberikan persetujuan atas pemenuhan ${h} untuk kebutuhan operasional kantor, agar selanjutnya dapat diproses sesuai dengan mekanisme dan ketentuan yang berlaku.`,
-          { ind: indent }
-        ),
-        P(
-          "Demikian disampaikan, atas arahan dan perhatian Bapak Kepala Kantor diucapkan terima kasih.",
-          { ind: indent }
-        ),
+        P("Demikian disampaikan, atas perhatian dan kerja samanya diucapkan terima kasih.", { ind: indent }),
         P("", { after: 120 }),
         signatureTable,
         P("Tembusan:", { al: L, after: 0 }),
         P("- Kepala " + BIDANG[note.bidang], { al: L }),
-        ...(note.auto ? [
-          P(
-            "Dokumen internal Smart Nota Dinas: QR dan tanda tangan dibuat otomatis oleh sistem, bukan sertifikat elektronik BSrE.",
-            { al: L }
-          )
-        ] : []),
         ...attachments
       ]
     }]
