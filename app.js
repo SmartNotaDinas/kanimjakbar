@@ -158,12 +158,17 @@ const save = () => {
   });
 })();
 
+// Waktu snapshot FA Detail terakhir. Nota yang dibuat setelah waktu ini
+// tetap mengurangi saldo snapshot; nota yang lebih lama tidak dihitung ulang.
+let faSnapshotTime = 0;
+
 // Terapkan data FA Detail terakhir yang diimpor Admin pada browser ini.
 function applySavedFAData() {
   try {
     Object.values(NODES).forEach(node => { delete node.faImported; delete node.faRemaining; });
     const saved = JSON.parse(localStorage.getItem("snd_fa_detail") || "null");
     if (!saved || !saved.values) return;
+    faSnapshotTime = saved.importedAt ? (Date.parse(saved.importedAt) || 0) : 0;
     Object.entries(saved.values).forEach(([path, values]) => {
       const node = NODES[path];
       if (!node) return;
@@ -193,11 +198,6 @@ const used = node => notas
   )
   .reduce((sum, n) => sum + (Number(n.minta) || 0), 0);
 
-// Jika baris akun memiliki sisa resmi dari FA Detail, tampilkan angka itu
-// secara langsung. Jangan mengurangi lagi dengan nilai Nota Dinas karena
-// angka sisa FA Detail sudah merupakan saldo pada periode laporan tersebut.
-// Untuk node yang tidak tercakup dalam impor FA Detail, gunakan perhitungan
-// dari data.js dan Nota Dinas seperti sebelumnya.
 // Tandai baris yang benar-benar berasal dari snapshot FA Detail.
 // Nilai induk dihitung dari anak jika saldo induk tidak diimpor langsung.
 const hasImportedFA = node => !!node && (
@@ -213,18 +213,34 @@ const effectivePagu = node => {
   return Number(node.pagu) || 0;
 };
 
+// Snapshot FA Detail sudah mencakup transaksi sampai tanggal impornya.
+// Karena itu, hanya Nota Dinas yang dibuat setelah snapshot yang dikurangkan
+// lagi agar pengajuan baru langsung mengurangi sisa monitoring.
+const usedAfterSnapshot = node => {
+  if (!faSnapshotTime) return 0;
+  return notas
+    .filter(n => {
+      const noteTime = Number(n.id) || (n.createdAt ? Date.parse(n.createdAt) : 0);
+      return n.status !== "Ditolak" && noteTime > faSnapshotTime && (
+        n.path === node.path ||
+        String(n.path || "").startsWith(node.path + "/")
+      );
+    })
+    .reduce((sum, n) => sum + (Number(n.minta) || 0), 0);
+};
+
 const sisa = node => {
   if (!node) return 0;
   const faRemaining = node.faRemaining;
   if (node.faImported === true && faRemaining !== null && faRemaining !== undefined && faRemaining !== "" && Number.isFinite(Number(faRemaining))) {
-    return Number(faRemaining);
+    return Number(faRemaining) - usedAfterSnapshot(node);
   }
-  // Jika impor hanya berisi akun rincian, jumlahkan saldo rincian tersebut
-  // sehingga ringkasan bidang dan akun induk ikut berubah.
+  // Jika impor hanya berisi akun rincian, jumlahkan saldo rincian tersebut.
   if ((node.kids || []).some(hasImportedFA)) {
     return node.kids.reduce((sum, child) => sum + sisa(child), 0);
   }
-  return Number(node.pagu || 0) - Number(node.lock || 0) - Number(node.real || 0) - used(node);
+  const deducted = node.faImported === true ? usedAfterSnapshot(node) : used(node);
+  return Number(node.pagu || 0) - Number(node.lock || 0) - Number(node.real || 0) - deducted;
 };
 
 const cls = value => value < 0 ? "neg" : "pos";
@@ -246,7 +262,7 @@ const akun = node => {
 const row = (node, pick) => `
   <span class="c">${esc(node.code)}</span>
   <span>${esc(node.name)}</span>
-  <span class="n">${rp(node.pagu)}</span>
+  <span class="n">${rp(effectivePagu(node))}</span>
   <span class="n ${cls(sisa(node))}">${rp(sisa(node))}</span>
   ${
     pick && !node.kids.length
@@ -734,7 +750,7 @@ function calc() {
   const target = sel ? akun(sel) : null;
   const before = target ? sisa(target) : 0;
 
-  $("cP").textContent = rp(target ? target.pagu : 0);
+  $("cP").textContent = rp(target ? effectivePagu(target) : 0);
   $("cB").textContent = rp(before);
   $("cA").textContent = rp(before - amount);
   $("cA").className = before - amount < 0 ? "neg" : "";
@@ -797,6 +813,7 @@ $("f").onsubmit = event => {
 
   const note = {
     id: Date.now(),
+    createdAt: new Date().toISOString(),
     jenisNodin: $("jenisNodin")?.value || "",
     tanggal: $("tgl").value,
     nomor: $("nomor").value.trim(),
@@ -806,8 +823,6 @@ $("f").onsubmit = event => {
     lampiran: $("lamp").value.trim(),
     kep: $("kep").value.trim(),
     rab: $("rab").value,
-    qr: IMG.qr,
-    sig: IMG.sig,
     blank: $("blank").checked,
     ttd: $("ttd").value.trim(),
     bidang: sel.bid,
@@ -815,7 +830,7 @@ $("f").onsubmit = event => {
     kode: account.code,
     uraian: account.name,
     item: sel === account ? "" : sel.code + " " + sel.name,
-    pagu: account.pagu,
+    pagu: effectivePagu(account),
     sebelum: before,
     minta: amount,
     sesudah: before - amount,
@@ -958,7 +973,6 @@ function getKemenimipasLogoData() {
    ========================================================= */
 
 async function pdf(note) {
-  note = withAuto(note);
   const logoData = await getKemenimipasLogoData();
 
   const JsPDF = window.jspdf && window.jspdf.jsPDF;
@@ -1147,7 +1161,7 @@ async function pdf(note) {
   // ruang dikosongkan untuk tanda tangan elektronik resmi; tidak membuat stempel otomatis.
   const signTitle = String(note.dari || "-");
   const signName = String(note.ttd || "").trim();
-  const signGap = note.blank ? 30 : (note.sig ? 25 : 18);
+  const signGap = note.blank ? 30 : 18;
   const needed = 8 + signGap + (note.blank ? 0 : (signName ? 8 : 0)) + 17;
   if (y + needed > 270) {
     doc.addPage();
@@ -1396,7 +1410,8 @@ async function word(note) {
     return;
   }
 
-  note = withAuto(note);
+  // Ambil logo kop untuk dokumen Word; bila gagal, kop teks tetap dibuat.
+  const logoData = await getKemenimipasLogoData();
 
   const {
     Document, Packer, Paragraph, TextRun, Table, TableRow,
@@ -2115,9 +2130,11 @@ function withAuto(note) {
           if (values.lock !== undefined) node.lock = values.lock;
           if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
         });
-        const record = { importedAt: new Date().toISOString(), fileName, values: savedValues, updatedRows: updated };
+        const importedAt = new Date().toISOString();
+        const record = { importedAt, fileName, values: savedValues, updatedRows: updated };
         try { localStorage.setItem("snd_fa_detail", JSON.stringify(record)); }
         catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
+        faSnapshotTime = Date.parse(importedAt) || Date.now();
         renderMon();
         renderAdminTools();
         $("faImportMessage").textContent = `Berhasil mengimpor ${updated} baris FA Detail, termasuk kode kegiatan dan akun. Sisa Monitoring mengikuti FA Detail pada baris yang cocok.${skipped ? ` ${skipped} baris berkode ganda dilewati agar tidak salah akun.` : ""} Data tersimpan pada browser ini.`;
@@ -2155,6 +2172,7 @@ function withAuto(note) {
     if (paguCol < 0 && realCol < 0 && lockCol < 0 && remainingCol < 0) throw new Error("Kolom Pagu, Realisasi, Blokir/Lock, atau Sisa Anggaran tidak terdeteksi pada header file.");
     const savedValues = {};
     let updated = 0;
+    let skipped = 0;
     const byCode = {};
     Object.values(NODES).forEach(node => { (byCode[node.code] ||= []).push(node); });
     const normalizeCode = v => String(v ?? "").replace(/\.0$/, "").replace(/[^0-9A-Za-z.]/g, "").trim();
@@ -2167,8 +2185,14 @@ function withAuto(note) {
       if (bidangCol >= 0 && row[bidangCol]) {
         const b = normHeader(row[bidangCol]);
         const filtered = candidates.filter(n => normHeader(n.bid).includes(b) || b.includes(normHeader(n.bid)) || normHeader(BIDANG[n.bid] || "").includes(b) || b.includes(normHeader(BIDANG[n.bid] || "")));
-        if (filtered.length) chosen = filtered;
+        if (filtered.length === 1) chosen = filtered;
+        else { skipped++; continue; }
+      } else if (candidates.length > 1) {
+        // Kode yang sama pada beberapa bidang wajib memiliki penanda bidang.
+        skipped++;
+        continue;
       }
+      if (chosen.length !== 1) { skipped++; continue; }
       for (const node of chosen) {
         const values = {};
         if (paguCol >= 0) { const n = parseNumber(row[paguCol]); if (n !== null) values.pagu = n; }
@@ -2201,12 +2225,14 @@ function withAuto(note) {
       if (values.lock !== undefined) node.lock = values.lock;
       if (values.faRemaining !== undefined) node.faRemaining = values.faRemaining;
     });
-    const record = { importedAt: new Date().toISOString(), fileName, values: savedValues, updatedRows: updated };
+    const importedAt = new Date().toISOString();
+    const record = { importedAt, fileName, values: savedValues, updatedRows: updated };
     try { localStorage.setItem("snd_fa_detail", JSON.stringify(record)); }
     catch (e) { throw new Error("Data berhasil dibaca tetapi tidak dapat disimpan: penyimpanan browser penuh."); }
+    faSnapshotTime = Date.parse(importedAt) || Date.now();
     renderMon();
     renderAdminTools();
-    $("faImportMessage").textContent = `Berhasil memproses ${updated} baris akun. Pagu/realisasi/lock dan kolom sisa anggaran yang tersedia telah diterapkan ke monitoring pada browser ini. Periksa label kolom sisa pada file bila saldo masih tidak sesuai.`;
+    $("faImportMessage").textContent = `Berhasil memproses ${updated} baris akun. Pagu/realisasi/lock dan kolom sisa anggaran yang tersedia telah diterapkan ke monitoring pada browser ini.${skipped ? ` ${skipped} baris dengan kode ambigu dilewati agar tidak salah bidang.` : ""} Periksa label kolom sisa pada file bila saldo masih tidak sesuai.`;
   }
 
   $("faDetailFile").addEventListener("change", async event => {
