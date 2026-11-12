@@ -1217,8 +1217,7 @@ async function pdf(note) {
   doc.setFontSize(11);
   doc.text("KANTOR IMIGRASI KELAS I KHUSUS NON TPI", W / 2 + 7, 19, { align: "center" });
   doc.text("JAKARTA BARAT", W / 2 + 7, 24, { align: "center" });
-  doc.setLineWidth(0.5);
-  doc.line(L, 32, R, 32);
+  // Garis horizontal di atas judul NOTA DINAS dihapus agar mengikuti tampilan Word.
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
