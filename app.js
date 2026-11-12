@@ -941,24 +941,50 @@ $("hb").onclick = event => {
   }
 };
 
-$("hb").onchange = event => {
-  const id = event.target.dataset.s;
-  if (!id) return;
+/*
+ * HAK AKSES STATUS NOTA DINAS
+ * - Admin: dapat mengubah status.
+ * - Akun bidang: hanya dapat melihat status; dropdown dibuat disabled.
+ * - Pemeriksaan hak akses tetap dilakukan saat event change agar perubahan
+ *   tidak hanya bergantung pada tampilan/atribut disabled di browser.
+ */
+$("hb").addEventListener("change", event => {
+  const select = event.target.closest('select[data-s]');
+  if (!select) return;
 
+  const id = select.dataset.s;
+  const note = notas.find(item => String(item.id) === String(id));
+
+  // Akun bidang tidak boleh mengubah status, sekalipun kontrol dimanipulasi.
   if (!isAdmin()) {
-    alert("Perubahan status hanya dapat dilakukan Admin.");
+    alert("Perubahan status hanya dapat dilakukan oleh Admin.");
     his();
     return;
   }
 
-  const note = notas.find(item => String(item.id) === String(id));
-  if (!note) return;
+  if (!note || !canAccessNote(note)) {
+    alert("Nota Dinas tidak ditemukan atau Anda tidak memiliki akses.");
+    his();
+    return;
+  }
 
-  note.status = event.target.value;
+  const allowedStatuses = ["Draft", "Diajukan", "Disetujui", "Ditolak"];
+  const newStatus = select.value;
+
+  // Tolak nilai status di luar pilihan resmi aplikasi.
+  if (!allowedStatuses.includes(newStatus)) {
+    alert("Status Nota Dinas tidak valid.");
+    his();
+    return;
+  }
+
+  if (note.status === newStatus) return;
+
+  note.status = newStatus;
   save();
   renderMon();
   his();
-};
+});
 
 /* Logo resmi Kemenimipas untuk kop Nota Dinas.
    Sumber resmi: https://kemenimipas.go.id/images/2026/logo/kemenimipas-logo.png
