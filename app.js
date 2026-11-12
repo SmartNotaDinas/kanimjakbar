@@ -1126,20 +1126,72 @@ async function pdf(note) {
     doc.setTextColor(0, 0, 0);
   };
 
+  /*
+   * Menulis uraian sebagai paragraf sungguhan:
+   * - baris pertama menjorok ke dalam;
+   * - baris berikutnya kembali ke margin kiri;
+   * - baris isi diratakan kiri-kanan, sedangkan baris terakhir rata kiri;
+   * - jarak antarparagraf dijaga agar tidak berhimpitan.
+   */
   const addParagraph = (text, options = {}) => {
     const indent = options.indent === false ? 0 : 7;
     const fontSize = options.fontSize || 12;
-    const lineHeight = options.lineHeight || 6.0;
+    const lineHeight = options.lineHeight || 5.8;
+    const after = options.after ?? 4.2;
+    const bottomLimit = 270;
+
     doc.setFont("helvetica", "normal");
     doc.setFontSize(fontSize);
-    const lines = doc.splitTextToSize(String(text || ""), width - indent);
-    const height = lines.length * lineHeight + (options.after ?? 4);
-    if (y + height > 265) {
-      doc.addPage();
-      y = 22;
+    doc.setTextColor(0, 0, 0);
+
+    // Rapikan spasi/newline dari input agar tidak berubah menjadi baris patah.
+    const paragraph = String(text || "").replace(/\s+/g, " ").trim();
+    if (!paragraph) return;
+
+    let lines = [];
+    if (indent > 0) {
+      // Baris pertama dihitung dengan lebar yang sudah dikurangi indentasi.
+      const firstLineParts = doc.splitTextToSize(paragraph, width - indent);
+      const firstLine = firstLineParts[0] || paragraph;
+      lines.push({ text: firstLine, first: true });
+
+      const remainder = paragraph.slice(firstLine.length).trim();
+      if (remainder) {
+        doc.splitTextToSize(remainder, width).forEach(line => {
+          lines.push({ text: line, first: false });
+        });
+      }
+    } else {
+      doc.splitTextToSize(paragraph, width).forEach(line => {
+        lines.push({ text: line, first: false });
+      });
     }
-    doc.text(lines, L + indent, y, { maxWidth: width - indent, align: "justify" });
-    y += height;
+
+    // Pindahkan satu paragraf utuh ke halaman berikutnya bila ruang tidak cukup.
+    const paragraphHeight = lines.length * lineHeight + after;
+    if (y + paragraphHeight > bottomLimit && y > 35) {
+      doc.addPage();
+      y = 25;
+    }
+
+    lines.forEach((line, index) => {
+      // Jika paragraf sangat panjang, lanjutkan dengan aman ke halaman berikutnya.
+      if (y > bottomLimit - lineHeight) {
+        doc.addPage();
+        y = 25;
+      }
+
+      const isLastLine = index === lines.length - 1;
+      const x = line.first ? L + indent : L;
+      const maxWidth = line.first ? width - indent : width;
+      doc.text(line.text, x, y, {
+        maxWidth,
+        align: isLastLine ? "left" : "justify"
+      });
+      y += lineHeight;
+    });
+
+    y += after;
   };
 
   const addPageFooter = () => {
