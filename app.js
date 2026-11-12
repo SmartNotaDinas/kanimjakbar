@@ -514,6 +514,23 @@ const YTH_OPTIONS = [
   "Pejabat Pembuat Komitmen"
 ];
 
+// Format pilihan Yth menjadi daftar vertikal bernomor jika lebih dari satu.
+// Mendukung data lama yang tersimpan dengan pemisah titik koma atau baris baru.
+function formatYthEntries(value) {
+  const entries = (Array.isArray(value)
+    ? value
+    : String(value || "").split(/[;\n]+/)
+  )
+    .map(item => String(item).trim())
+    .filter(Boolean);
+
+  if (entries.length === 0) return ["-"];
+  if (entries.length > 1) {
+    return entries.map((item, index) => `${index + 1}. ${item}`);
+  }
+  return entries;
+}
+
 const DARI_OPTIONS = [
   "Kepala Bidang Inteldakim",
   "Kepala Bidang Intaltuskim",
@@ -1049,7 +1066,7 @@ async function pdf(note) {
 
   // Metadata menggunakan tata letak label, titik dua, dan isi yang konsisten.
   const info = [
-    ["Yth", note.yth || "-"],
+    ["Yth", formatYthEntries(note.yth)],
     ["Dari", note.dari || "-"],
     [halLabel, note.hal || "-"],
     ["Lampiran", note.lampiran || "-"],
@@ -1059,7 +1076,8 @@ async function pdf(note) {
   info.forEach(([label, value]) => {
     const labelWidth = 25;
     const valueWidth = width - labelWidth - 5;
-    const lines = doc.splitTextToSize(String(value || "-"), valueWidth);
+    const values = Array.isArray(value) ? value : [String(value || "-")];
+    const lines = values.flatMap(item => doc.splitTextToSize(String(item), valueWidth));
     const lineHeight = 4.7;
     if (y + lines.length * lineHeight + 1 > 265) {
       doc.addPage();
@@ -1472,11 +1490,19 @@ async function word(note) {
       ? { ...noBorders, bottom: line }
       : noBorders;
 
+    const valueParagraphs = row[0] === "Yth"
+      ? formatYthEntries(row[1]).map(item =>
+          P(item, { al: L, after: 60 })
+        )
+      : [
+          P(row[1] || "-", { al: L, after: 60 })
+        ];
+
     return new TableRow({
       children: [
         C([P(row[0], { al: L, after: 60 })], 1400, { br: border }),
         C([P(":", { al: L, after: 60 })], 300, { br: border }),
-        C([P(row[1], { al: L, after: 60 })], 7900, { br: border })
+        C(valueParagraphs, 7900, { br: border })
       ]
     });
   }));
