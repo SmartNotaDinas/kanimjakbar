@@ -1213,13 +1213,13 @@ async function pdf(note) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.text("KEMENTERIAN IMIGRASI DAN PEMASYARAKATAN", W / 2 + 7, 13, { align: "center" });
-  doc.setFont("helvetica", "bold");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.text("KANTOR IMIGRASI KELAS I KHUSUS NON TPI", W / 2 + 7, 19, { align: "center" });
   doc.text("JAKARTA BARAT", W / 2 + 7, 24, { align: "center" });
   // Garis horizontal di atas judul NOTA DINAS dihapus agar mengikuti tampilan Word.
 
-  doc.setFont("helvetica", "bold");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(12);
   doc.text("NOTA DINAS", W / 2, 40, { align: "center" });
   doc.setFont("helvetica", "normal");
