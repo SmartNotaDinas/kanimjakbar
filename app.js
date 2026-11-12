@@ -776,6 +776,46 @@ function calc() {
 $("minta").oninput = calc;
 
 /* =========================================================
+   TANGGAL TAMBAHAN DI DALAM URAIAN SURAT
+   Diisi mandiri dan terpisah dari tanggal identitas Nota Dinas.
+   Dibuat melalui app.js agar index.html tidak perlu diubah.
+   ========================================================= */
+(function addNarrativeDateField() {
+  const form = $("f");
+  if (!form || $("tglUraian")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "tanggalUraianWrap";
+  wrap.style.cssText = "grid-column:1 / -1;width:100%;margin:10px 0 14px;";
+
+  const label = document.createElement("label");
+  label.htmlFor = "tglUraian";
+  label.textContent = "Tanggal dalam uraian surat (diisi mandiri)";
+  label.style.cssText = "display:block;font-weight:600;margin-bottom:6px;";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.id = "tglUraian";
+  input.name = "tanggalUraian";
+  input.placeholder = "Contoh: 12 Oktober 2026";
+  input.autocomplete = "off";
+  input.maxLength = 80;
+  input.style.cssText = "display:block;width:100%;max-width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;";
+
+  const help = document.createElement("small");
+  help.textContent = "Isi tanggal yang ingin dicantumkan pada uraian. Tanggal identitas Nota Dinas tetap terpisah.";
+  help.style.cssText = "display:block;margin-top:5px;color:#64748b;line-height:1.45;";
+
+  wrap.append(label, input, help);
+  const submitButton = form.querySelector('button[type="submit"],input[type="submit"]');
+  if (submitButton && submitButton.parentElement) {
+    submitButton.parentElement.insertBefore(wrap, submitButton);
+  } else {
+    form.appendChild(wrap);
+  }
+})();
+
+/* =========================================================
    SIMPAN NOTA DINAS
    ========================================================= */
 
@@ -833,6 +873,7 @@ $("f").onsubmit = event => {
     createdAt: new Date().toISOString(),
     jenisNodin: $("jenisNodin")?.value || "",
     tanggal: $("tgl").value,
+    tanggalUraian: $("tglUraian")?.value.trim() || "",
     nomor: $("nomor").value.trim(),
     yth: $("yth").value.trim(),
     dari: $("dari").value.trim(),
@@ -1012,6 +1053,51 @@ function getKemenimipasLogoData() {
 }
 
 /* =========================================================
+   ISI URAIAN NOTA DINAS (DIPAKAI BERSAMA OLEH PDF DAN WORD)
+   ========================================================= */
+function getNotaActivityDescription(note) {
+  const parts = [note.uraian || "-"];
+  if (note.item) parts.push(note.item);
+  if (note.kep) parts.push(note.kep);
+  return parts.join("\n");
+}
+
+function getNotaNarrative(note) {
+  const isPok = /revisi\s*pok/i.test(note.jenisNodin || "");
+  const isPencairan = /pencairan/i.test(note.jenisNodin || "");
+  const bidangNama = BIDANG[note.bidang] || note.bidang || "bidang terkait";
+  const tujuan = String(note.hal || note.kep || "kebutuhan operasional").trim();
+  const paragraphs = [];
+
+  if (isPok) {
+    paragraphs.push(
+      `Dalam rangka mendukung kelancaran pelaksanaan tugas dan fungsi di ${bidangNama} serta menyesuaikan pelaksanaan kegiatan dengan kebutuhan operasional, dipandang perlu dilakukan revisi terhadap Petunjuk Operasional Kegiatan (POK) Tahun Anggaran 2026 pada ${bidangNama}.`,
+      "Sehubungan dengan hal tersebut, mohon kiranya dapat memberikan persetujuan atas usulan revisi POK dimaksud untuk selanjutnya diproses sesuai dengan ketentuan dan mekanisme pengelolaan anggaran yang berlaku."
+    );
+  } else if (isPencairan) {
+    paragraphs.push(
+      `Dalam rangka mendukung pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini dengan hormat kami sampaikan Rencana Anggaran Belanja (RAB) berupa permohonan biaya ${tujuan}.`,
+      "Adapun kebutuhan biaya dimaksud dibebankan pada Daftar Isian Pelaksanaan Anggaran (DIPA) Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat sesuai Tahun Anggaran dan sumber anggaran yang tercantum pada data pengajuan, dengan memperhatikan ketersediaan pagu serta ketentuan yang berlaku."
+    );
+  } else {
+    paragraphs.push(
+      `Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini disampaikan Nota Dinas mengenai ${tujuan}.`,
+      "Sehubungan dengan hal tersebut, mohon kiranya hal dimaksud dapat ditindaklanjuti sesuai kebutuhan dan ketentuan yang berlaku."
+    );
+  }
+
+  const tanggalUraian = String(note.tanggalUraian || "").trim();
+  if (tanggalUraian) {
+    paragraphs.push(`Tanggal pelaksanaan/kegiatan yang dimaksud: ${tanggalUraian}.`);
+  }
+
+  if (isPok) paragraphs.push("Rincian anggaran sebagai berikut:");
+  else if (isPencairan) paragraphs.push("Rincian anggaran sebagai berikut:");
+
+  return paragraphs;
+}
+
+/* =========================================================
    PDF NOTA DINAS
    ========================================================= */
 
@@ -1025,7 +1111,7 @@ async function pdf(note) {
   }
 
   const doc = new JsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-  const W = 210, L = 18, R = 192, width = R - L;
+  const W = 210, L = 25, R = 185, width = R - L;
   const isPok = /revisi\s*pok/i.test(note.jenisNodin || "");
   const isPencairan = /pencairan/i.test(note.jenisNodin || "");
   const halLabel = isPencairan ? "Perihal" : "Hal";
@@ -1035,24 +1121,24 @@ async function pdf(note) {
   let y = 48;
 
   const setNormal = () => {
-    doc.setFont("times", "normal");
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
     doc.setTextColor(0, 0, 0);
   };
 
   const addParagraph = (text, options = {}) => {
     const indent = options.indent === false ? 0 : 7;
-    const fontSize = options.fontSize || 11;
-    const lineHeight = options.lineHeight || 5.2;
-    doc.setFont("times", "normal");
+    const fontSize = options.fontSize || 12;
+    const lineHeight = options.lineHeight || 6.0;
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(fontSize);
     const lines = doc.splitTextToSize(String(text || ""), width - indent);
-    const height = lines.length * lineHeight + (options.after ?? 2.5);
+    const height = lines.length * lineHeight + (options.after ?? 4);
     if (y + height > 265) {
       doc.addPage();
       y = 22;
     }
-    doc.text(lines, L + indent, y, { maxWidth: width - indent });
+    doc.text(lines, L + indent, y, { maxWidth: width - indent, align: "justify" });
     y += height;
   };
 
@@ -1060,7 +1146,7 @@ async function pdf(note) {
     const total = doc.getNumberOfPages();
     for (let page = 1; page <= total; page++) {
       doc.setPage(page);
-      doc.setFont("times", "normal");
+      doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(100, 100, 100);
       doc.text(
@@ -1082,10 +1168,10 @@ async function pdf(note) {
   doc.setLineWidth(0.5);
   doc.line(L, 32, R, 32);
 
-  doc.setFont("times", "bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.text("NOTA DINAS", W / 2, 40, { align: "center" });
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10.5);
   doc.text("Nomor : " + (note.nomor || "-"), W / 2, 46, { align: "center" });
   y = 55;
@@ -1104,7 +1190,7 @@ async function pdf(note) {
     const valueWidth = width - labelWidth - 5;
     const values = Array.isArray(value) ? value : [String(value || "-")];
     const lines = values.flatMap(item => doc.splitTextToSize(String(item), valueWidth));
-    const lineHeight = 4.7;
+    const lineHeight = 5.0;
     if (y + lines.length * lineHeight + 1 > 265) {
       doc.addPage();
       y = 22;
@@ -1112,30 +1198,19 @@ async function pdf(note) {
     doc.text(label, L, y);
     doc.text(":", L + labelWidth - 3, y);
     doc.text(lines, L + labelWidth + 1, y);
-    y += Math.max(lineHeight, lines.length * lineHeight) + 1;
+    y += Math.max(lineHeight, lines.length * lineHeight) + 1.5;
   });
   doc.setLineWidth(0.25);
   doc.line(L, y, R, y);
   y += 6;
 
-  if (isPok) {
-    addParagraph(`Dalam rangka mendukung kelancaran pelaksanaan tugas dan fungsi di ${bidangNama} serta menyesuaikan pelaksanaan kegiatan dengan kebutuhan operasional, dipandang perlu dilakukan revisi terhadap Petunjuk Operasional Kegiatan (POK) Tahun Anggaran 2026 pada ${bidangNama}.`);
-    addParagraph("Sehubungan dengan hal tersebut, mohon kiranya dapat memberikan persetujuan atas usulan revisi POK dimaksud untuk selanjutnya diproses sesuai dengan ketentuan dan mekanisme pengelolaan anggaran yang berlaku.");
-    addParagraph("Rincian anggaran sebagai berikut:");
-  } else if (isPencairan) {
-    addParagraph(`Dalam rangka mendukung pengelolaan informasi dan pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini dengan hormat kami sampaikan Rencana Anggaran Belanja (RAB) berupa permohonan biaya ${bodySubject}.`);
-    addParagraph(`Adapun kebutuhan biaya dimaksud dibebankan pada Daftar Isian Pelaksanaan Anggaran (DIPA) Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat Tahun Anggaran 2026, dengan memperhatikan ketersediaan pagu anggaran serta ketentuan yang berlaku. Rincian anggaran sebagai berikut:`);
-  } else {
-    addParagraph(`Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini disampaikan nota dinas mengenai ${bodySubject}.`);
-    addParagraph("Sehubungan dengan hal tersebut, mohon kiranya hal dimaksud dapat ditindaklanjuti sesuai kebutuhan dan ketentuan yang berlaku.");
-  }
+  getNotaNarrative(note).forEach(paragraph => addParagraph(paragraph));
 
   const account = NODES[note.path] || null;
   const accountText = [note.kode || "", note.uraian || ""].filter(Boolean).join(" – ");
-  const activityText = [note.item || "", note.kep || ""].filter(Boolean).join("\n");
   const tableBody = [[
     note.kode || "-",
-    (note.uraian || "-") + (activityText ? "\n" + activityText : ""),
+    getNotaActivityDescription(note),
     rp(note.pagu),
     rp(amount),
     rp(note.sebelum),
@@ -1157,9 +1232,9 @@ async function pdf(note) {
     ]],
     body: tableBody,
     styles: {
-      font: "times",
-      fontSize: 7.2,
-      cellPadding: 1.6,
+      font: "helvetica",
+      fontSize: 8,
+      cellPadding: 1.8,
       overflow: "linebreak",
       valign: "middle",
       textColor: [0, 0, 0],
@@ -1167,39 +1242,31 @@ async function pdf(note) {
       lineWidth: 0.2
     },
     headStyles: {
-      font: "times",
+      font: "helvetica",
       fontStyle: "bold",
-      fontSize: 7.1,
+      fontSize: 8,
       fillColor: [230, 230, 230],
       textColor: [0, 0, 0],
       halign: "center",
       valign: "middle"
     },
     columnStyles: {
-      0: { cellWidth: 19, halign: "center" },
-      1: { cellWidth: 37, halign: "left" },
-      2: { cellWidth: 25, halign: "right" },
-      3: { cellWidth: 25, halign: "right" },
-      4: { cellWidth: 34, halign: "right" },
-      5: { cellWidth: 34, halign: "right" }
+      0: { cellWidth: 17, halign: "center" },
+      1: { cellWidth: 33, halign: "left" },
+      2: { cellWidth: 22, halign: "right" },
+      3: { cellWidth: 22, halign: "right" },
+      4: { cellWidth: 31, halign: "right" },
+      5: { cellWidth: 31, halign: "right" }
     },
     didDrawPage: () => {
-      doc.setFont("times", "bold");
+      doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       doc.setTextColor(0, 0, 0);
     }
   });
   y = doc.lastAutoTable.finalY + 7;
 
-  if (isPok) {
-    addParagraph(
-      "Demikian disampaikan, atas perhatian dan kerja samanya diucapkan terima kasih."
-    );
-  } else {
-    addParagraph(
-      "Demikian disampaikan, atas arahan dan perhatian Bapak Kepala Kantor diucapkan terima kasih."
-    );
-  }
+  addParagraph("Demikian disampaikan, atas perhatian dan kerja samanya diucapkan terima kasih.");
 
   // Blok pejabat dan ruang tanda tangan. Jika opsi ruang tanda tangan dicentang,
   // ruang dikosongkan untuk tanda tangan elektronik resmi; tidak membuat stempel otomatis.
@@ -1215,7 +1282,7 @@ async function pdf(note) {
   const signX = 124;
   const signW = 68;
   const titleLines = doc.splitTextToSize(signTitle, signW);
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(10.5);
   doc.text(titleLines, signX, y, { maxWidth: signW });
   y += titleLines.length * 4.8 + 2;
@@ -1224,9 +1291,9 @@ async function pdf(note) {
   // Tidak menggunakan QR/tanda tangan gambar dari aplikasi sebagai pengganti sertifikat.
   y += Math.max(30, signGap);
   if (signName) {
-    doc.setFont("times", "bold");
+    doc.setFont("helvetica", "bold");
     doc.text(signName, signX, y);
-    doc.setFont("times", "normal");
+    doc.setFont("helvetica", "normal");
     y += 5;
   }
 
@@ -1235,7 +1302,7 @@ async function pdf(note) {
     doc.addPage();
     y = 22;
   }
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(9.5);
   doc.text("Tembusan:", L, y);
   doc.text("- " + (BIDANG[note.bidang] || note.bidang || "-"), L, y + 5);
@@ -1243,14 +1310,14 @@ async function pdf(note) {
   const items = parseRab(note.rab || "");
   if (items.length) {
     doc.addPage();
-    doc.setFont("times", "normal");
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.text("Lampiran Nodin Nomor : " + (note.nomor || "-"), R, 20, { align: "right" });
     doc.text("Tanggal Surat : " + fd(note.tanggal), R, 26, { align: "right" });
-    doc.setFont("times", "bold");
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.text("RINCIAN RENCANA ANGGARAN BIAYA", W / 2, 39, { align: "center" });
-    doc.setFont("times", "normal");
+    doc.setFont("helvetica", "normal");
     doc.autoTable({
       startY: 46,
       theme: "grid",
@@ -1265,7 +1332,7 @@ async function pdf(note) {
       ]),
       foot: [["", "Total", "", "", rp(items.reduce((sum, item) => sum + item.vol * item.harga, 0))]],
       styles: {
-        font: "times",
+        font: "helvetica",
         fontSize: 9,
         cellPadding: 2,
         textColor: [0, 0, 0],
@@ -1273,7 +1340,7 @@ async function pdf(note) {
         lineWidth: 0.2
       },
       headStyles: {
-        font: "times",
+        font: "helvetica",
         fontStyle: "bold",
         fillColor: [230, 230, 230],
         textColor: [0, 0, 0],
@@ -1463,14 +1530,14 @@ async function word(note) {
   } = D;
 
   const textRun = (text, options = {}) =>
-    new TextRun({ text: String(text ?? ""), size: 22, font: "Arial", ...options });
+    new TextRun({ text: String(text ?? ""), size: options.size || 24, font: "Arial", ...options });
 
   const P = (text, options = {}) => new Paragraph({
     alignment: options.al || A.JUSTIFIED,
-    spacing: { after: options.after ?? 120 },
+    spacing: { after: options.after ?? 160, line: options.line ?? 276 },
     indent: options.ind,
     pageBreakBefore: options.pb,
-    children: [textRun(text, { bold: options.b })]
+    children: [textRun(text, { bold: options.b, size: options.size })]
   });
 
   const none = { style: B.NONE, size: 0, color: "FFFFFF" };
@@ -1486,7 +1553,7 @@ async function word(note) {
   });
 
   const T = (widths, rows) => new Table({
-    width: { size: 9600, type: WidthType.DXA },
+    width: { size: 8790, type: WidthType.DXA },
     columnWidths: widths,
     rows
   });
@@ -1494,47 +1561,47 @@ async function word(note) {
   const h = String(note.hal || "").toLowerCase();
   const L = A.LEFT, R = A.RIGHT, M = A.CENTER;
 
+  const wordHalLabel = /pencairan/i.test(note.jenisNodin || "") ? "Perihal" : "Hal";
   const info = [
-    ["Jenis Nota Dinas", note.jenisNodin || "-"],
     ["Yth", note.yth],
     ["Dari", note.dari],
-    ["Hal", note.hal],
+    [wordHalLabel, note.hal],
     ["Lampiran", note.lampiran || "-"],
     ["Tanggal", fd(note.tanggal)]
   ];
 
-  const letterhead = T([1250, 8350], [new TableRow({ children: [
-    C(logoData ? [new Paragraph({ alignment: M, children: [new ImageRun({ data: u8(logoData), transformation: { width: 66, height: 66 } })] })] : [P("")], 1250),
+  const letterhead = T([1150, 7640], [new TableRow({ children: [
+    C(logoData ? [new Paragraph({ alignment: M, children: [new ImageRun({ data: u8(logoData), transformation: { width: 66, height: 66 } })] })] : [P("")], 1150),
     C([
       P("KEMENTERIAN IMIGRASI DAN PEMASYARAKATAN", { al: M, after: 0 }),
       P("KANTOR IMIGRASI KELAS I KHUSUS NON TPI JAKARTA BARAT", { al: M, b: true, after: 0 })
-    ], 8350)
+    ], 7640)
   ] })]);
 
-  const infoTable = T([1400, 300, 7900], info.map((row, index) => {
+  const infoTable = T([1300, 300, 7190], info.map((row, index) => {
     const border = index === info.length - 1
       ? { ...noBorders, bottom: line }
       : noBorders;
 
     const valueParagraphs = row[0] === "Yth"
       ? formatYthEntries(row[1]).map(item =>
-          P(item, { al: L, after: 60 })
+          P(item, { al: L, after: 60, size: 22, line: 252 })
         )
       : [
-          P(row[1] || "-", { al: L, after: 60 })
+          P(row[1] || "-", { al: L, after: 60, size: 22, line: 252 })
         ];
 
     return new TableRow({
       children: [
-        C([P(row[0], { al: L, after: 60 })], 1400, { br: border }),
-        C([P(":", { al: L, after: 60 })], 300, { br: border }),
-        C(valueParagraphs, 7900, { br: border })
+        C([P(row[0], { al: L, after: 60, size: 22, line: 252 })], 1300, { br: border }),
+        C([P(":", { al: L, after: 60, size: 22, line: 252 })], 300, { br: border }),
+        C(valueParagraphs, 7190, { br: border })
       ]
     });
   }));
 
   // Tabel utama dipertahankan enam kolom sesuai rancangan awal aplikasi.
-  const widths = [1250, 2350, 1350, 1450, 1600, 1600];
+  const widths = [1145, 2153, 1237, 1328, 1463, 1464];
 
   const headers = [
     "Kode Akun",
@@ -1549,7 +1616,7 @@ async function word(note) {
     new TableRow({
       tableHeader: true,
       children: headers.map((text, index) =>
-        C([P(text, { al: M, b: true, after: 0 })], widths[index], {
+        C([P(text, { al: M, b: true, after: 0, size: 16, line: 200 })], widths[index], {
           br: borders,
           fill: "BFBFBF"
         })
@@ -1558,13 +1625,13 @@ async function word(note) {
     new TableRow({
       children: [
         note.kode || "-",
-        (note.uraian || "-") + (note.item ? " (" + note.item + ")" : "") + (note.kep ? "\n" + note.kep : ""),
+        getNotaActivityDescription(note),
         rp(note.pagu),
         rp(note.minta),
         rp(note.sebelum),
         rp(note.sesudah)
       ].map((text, index) =>
-        C([P(text, { al: index >= 2 ? R : (index === 0 ? M : L), after: 0 })], widths[index], {
+        C([P(text, { al: index >= 2 ? R : (index === 0 ? M : L), after: 0, size: 16, line: 200 })], widths[index], {
           br: borders
         })
       )
@@ -1577,10 +1644,10 @@ async function word(note) {
     P("", { al: M, after: 600 }),
     P(note.ttd || "", { al: M, b: true, after: 0 })
   ];
-  const signatureTable = T([4800, 4800], [
+  const signatureTable = T([4395, 4395], [
     new TableRow({ children: [
-      C([P("")], 4800),
-      C(signChildren, 4800)
+      C([P("")], 4395),
+      C(signChildren, 4395)
     ] })
   ]);
 
@@ -1588,7 +1655,7 @@ async function word(note) {
   const attachments = [];
 
   if (items.length) {
-    const W = [700, 3900, 1300, 1800, 1900];
+    const W = [640, 3570, 1190, 1645, 1745];
 
     const makeRow = (values, bold, fill) => new TableRow({
       children: values.map((value, index) =>
@@ -1596,7 +1663,9 @@ async function word(note) {
           P(value, {
             al: index > 2 ? R : index === 1 ? L : M,
             b: bold,
-            after: 0
+            after: 0,
+            size: 16,
+            line: 200
           })
         ], W[index], { br: borders, fill })
       )
@@ -1633,10 +1702,10 @@ async function word(note) {
       properties: {
         page: {
           margin: {
-            top: 1134,
-            right: 1134,
-            bottom: 1134,
-            left: 1134
+            top: 1417,
+            right: 1417,
+            bottom: 1417,
+            left: 1701
           }
         }
       },
@@ -1647,17 +1716,7 @@ async function word(note) {
         P("Nomor : " + note.nomor, { al: M, after: 240 }),
         infoTable,
         P("", { after: 120 }),
-        ...( /revisi\s*pok/i.test(note.jenisNodin || "") ? [
-          P(`Dalam rangka mendukung kelancaran pelaksanaan tugas dan fungsi di ${BIDANG[note.bidang] || note.bidang} serta menyesuaikan pelaksanaan kegiatan dengan kebutuhan operasional, dipandang perlu dilakukan revisi terhadap Petunjuk Operasional Kegiatan (POK) Tahun Anggaran 2026 pada ${BIDANG[note.bidang] || note.bidang}.`, { ind: indent }),
-          P("Sehubungan dengan hal tersebut, mohon kiranya dapat memberikan persetujuan atas usulan revisi POK dimaksud untuk selanjutnya diproses sesuai dengan ketentuan dan mekanisme pengelolaan anggaran yang berlaku.", { ind: indent }),
-          P("Rincian anggaran sebagai berikut:", { ind: indent })
-        ] : /pencairan/i.test(note.jenisNodin || "") ? [
-          P(`Dalam rangka mendukung pengelolaan informasi dan pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini dengan hormat kami sampaikan Rencana Anggaran Belanja (RAB) berupa permohonan biaya ${note.hal || note.kep || "kebutuhan operasional"}.`, { ind: indent }),
-          P("Adapun kebutuhan biaya dimaksud dibebankan pada Daftar Isian Pelaksanaan Anggaran (DIPA) Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat Tahun Anggaran 2026, dengan memperhatikan ketersediaan pagu anggaran serta ketentuan yang berlaku. Rincian anggaran sebagai berikut:", { ind: indent })
-        ] : [
-          P(`Dalam rangka menunjang kelancaran pelaksanaan tugas dan fungsi pada Kantor Imigrasi Kelas I Khusus Non TPI Jakarta Barat, bersama ini disampaikan nota dinas mengenai ${note.hal || note.kep || "kebutuhan operasional"}.`, { ind: indent }),
-          P("Sehubungan dengan hal tersebut, mohon kiranya hal dimaksud dapat ditindaklanjuti sesuai kebutuhan dan ketentuan yang berlaku.", { ind: indent })
-        ]),
+        ...getNotaNarrative(note).map(paragraph => P(paragraph, { ind: indent })),
         anggaranTable,
         P("", { after: 120 }),
         P("Demikian disampaikan, atas perhatian dan kerja samanya diucapkan terima kasih.", { ind: indent }),
